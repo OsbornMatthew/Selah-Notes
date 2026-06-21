@@ -12,8 +12,15 @@ class NotesDatabase {
 
   static Future<void> init() async {
     await Hive.initFlutter();
-    Hive.registerAdapter(NoteAdapter());
-    Hive.registerAdapter(FolderAdapter());
+
+    // Guard against double-registration on hot restart
+    if (!Hive.isAdapterRegistered(NoteAdapter().typeId)) {
+      Hive.registerAdapter(NoteAdapter());
+    }
+    if (!Hive.isAdapterRegistered(FolderAdapter().typeId)) {
+      Hive.registerAdapter(FolderAdapter());
+    }
+
     _notesBox = await Hive.openBox<Note>(notesBoxName);
     _foldersBox = await Hive.openBox<Folder>(foldersBoxName);
   }
@@ -40,7 +47,6 @@ class NotesDatabase {
 
   static Future<void> saveNote(Note note) async {
     await notesBox.put(note.id, note);
-    // Sync to Firebase in background (won't block UI)
     FirebaseSyncService.uploadNote(note).catchError((_) {});
   }
 
@@ -59,7 +65,6 @@ class NotesDatabase {
   }
 
   static Future<void> deleteFolder(String id) async {
-    // Also delete all notes within this folder
     final notesToDelete =
         notesBox.values.where((n) => n.folderId == id).map((n) => n.id).toList();
     for (final noteId in notesToDelete) {

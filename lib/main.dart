@@ -10,7 +10,15 @@ import 'screens/folders_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+
+  // Initialize Firebase — catch if already initialized
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    // Already initialized, ignore
+  }
+
+  // Initialize local Hive database
   await NotesDatabase.init();
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -37,7 +45,6 @@ class SelahNotesApp extends StatelessWidget {
   }
 }
 
-/// Shows LoginScreen if signed out, FoldersScreen if signed in.
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
@@ -55,8 +62,7 @@ class _AuthGate extends StatelessWidget {
           );
         }
         if (snapshot.hasData) {
-          // Sync data in background when user is already logged in
-          FirebaseSyncService.syncFromFirestore();
+          FirebaseSyncService.syncFromFirestore().catchError((_) {});
           return const FoldersScreen();
         }
         return const LoginScreen();
