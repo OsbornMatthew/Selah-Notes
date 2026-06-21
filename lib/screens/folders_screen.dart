@@ -192,7 +192,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: GlassCard(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
-                  borderRadius: 16,
+                  borderRadius: BorderRadius.circular(16),
                   child: TextField(
                     controller: _searchController,
                     onChanged: _onSearchChanged,
