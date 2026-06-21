@@ -376,7 +376,7 @@ class _NoteCard extends StatelessWidget {
                 value: 'move',
                 child: Row(
                   children: [
-                    Icon(Icons.drive_file_move_outline_rounded, size: 18, color: AppColors.gold),
+                    Icon(Icons.drive_file_move_outlined, size: 18, color: AppColors.gold),
                     SizedBox(width: 10),
                     Text('Move to folder', style: TextStyle(color: AppColors.textPrimary)),
                   ],

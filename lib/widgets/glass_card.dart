@@ -2,11 +2,13 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// A frosted-glass card with a subtle gold border.
 class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
   final BorderRadius? borderRadius;
+  final Color? borderColor;
+  final double blurSigma;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
@@ -14,7 +16,10 @@ class GlassCard extends StatelessWidget {
     super.key,
     required this.child,
     this.padding,
+    this.margin,
     this.borderRadius,
+    this.borderColor,
+    this.blurSigma = 8,
     this.onTap,
     this.onLongPress,
   });
@@ -22,10 +27,10 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = borderRadius ?? BorderRadius.circular(16);
-    return ClipRRect(
+    Widget card = ClipRRect(
       borderRadius: radius,
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
@@ -35,17 +40,21 @@ class GlassCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.glassFill,
               borderRadius: radius,
-              border: Border.all(color: AppColors.glassBorder),
+              border: Border.all(color: borderColor ?? AppColors.glassBorder),
             ),
             child: child,
           ),
         ),
       ),
     );
+
+    if (margin != null) {
+      return Container(margin: margin, child: card);
+    }
+    return card;
   }
 }
 
-/// A gradient background that gives the glass cards something to float on.
 class GlassBackground extends StatelessWidget {
   final Widget child;
   const GlassBackground({super.key, required this.child});
