@@ -11,15 +11,17 @@ import 'screens/folders_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase — catch if already initialized
   try {
     await Firebase.initializeApp();
   } catch (e) {
-    // Already initialized, ignore
+    debugPrint('Firebase init: $e');
   }
 
-  // Initialize local Hive database
-  await NotesDatabase.init();
+  try {
+    await NotesDatabase.init();
+  } catch (e) {
+    debugPrint('Hive init: $e');
+  }
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -55,9 +57,9 @@ class _AuthGate extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            backgroundColor: Color(0xFF0D0D0D),
+            backgroundColor: Color(0xFF0D0B08),
             body: Center(
-              child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
             ),
           );
         }
