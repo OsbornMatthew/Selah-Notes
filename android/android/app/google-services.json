@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "263815560706",
+    "project_id": "selah-notes-ebc6a",
+    "storage_bucket": "selah-notes-ebc6a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:263815560706:android:567a5dac703daacfa4711b",
+        "android_client_info": {
+          "package_name": "com.selahnotes.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmeB14PJcUQmff2G8MRtkEzjxF5F0lHgA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

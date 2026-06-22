@@ -1,0 +1,24 @@
+// Firestore Security Rules for Selah Notes
+// Paste these into Firebase Console → Firestore Database → Rules → Publish
+//
+// These rules ensure:
+// - A signed-in user can ONLY read/write their OWN folders and notes
+// - No one can read anyone else's data — not even other app users
+// - Unauthenticated (logged-out) users can't read or write anything
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Each user's data lives under users/{userId}/...
+    // Only the authenticated user whose uid matches can access it
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
