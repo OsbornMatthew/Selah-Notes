@@ -53,11 +53,17 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
       selection: const TextSelection.collapsed(offset: 0),
       readOnly: !_isEditing,
     );
+    _quillController.addListener(_onQuillChanged);
+  }
+
+  void _onQuillChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _quillController.removeListener(_onQuillChanged);
     _quillController.dispose();
     _editorFocus.dispose();
     super.dispose();
@@ -144,6 +150,16 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
       ColorAttribute('#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}'));
   }
 
+  bool _hasAttribute(Attribute attribute) {
+    final style = _quillController.getSelectionStyle();
+    return style.attributes.containsKey(attribute.key);
+  }
+
+  void _toggleAttribute(Attribute attribute) {
+    final isActive = _hasAttribute(attribute);
+    _quillController.formatSelection(isActive ? Attribute.clone(attribute, null) : attribute);
+  }
+
   void _showFormattingSheet() {
     showModalBottomSheet(
       context: context,
@@ -158,6 +174,33 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
             children: [
               const Padding(padding: EdgeInsets.only(top: 4, bottom: 12),
                 child: Text('Format Selected Text', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 16))),
+              const Text('Style', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              StatefulBuilder(
+                builder: (sheetCtx, sheetSetState) => Row(children: [
+                  _StyleBtn(
+                    icon: Icons.format_bold_rounded,
+                    label: 'Bold',
+                    active: _hasAttribute(Attribute.bold),
+                    onTap: () { _toggleAttribute(Attribute.bold); sheetSetState(() {}); },
+                  ),
+                  const SizedBox(width: 8),
+                  _StyleBtn(
+                    icon: Icons.format_italic_rounded,
+                    label: 'Italic',
+                    active: _hasAttribute(Attribute.italic),
+                    onTap: () { _toggleAttribute(Attribute.italic); sheetSetState(() {}); },
+                  ),
+                  const SizedBox(width: 8),
+                  _StyleBtn(
+                    icon: Icons.format_underline_rounded,
+                    label: 'Underline',
+                    active: _hasAttribute(Attribute.underline),
+                    onTap: () { _toggleAttribute(Attribute.underline); sheetSetState(() {}); },
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 16),
               const Text('Text Size', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               Row(children: [
@@ -217,6 +260,7 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
         ),
         body: GlassBackground(
           child: SafeArea(
+            top: false,
             child: Padding(
               padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 12, 16, 16),
               child: GlassCard(
@@ -249,6 +293,34 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
                     const SizedBox(height: 14),
                     const Divider(color: AppColors.divider, height: 1),
                     const SizedBox(height: 10),
+                    if (_isEditing) ...[
+                      Row(children: [
+                        _InlineStyleBtn(
+                          icon: Icons.format_bold_rounded,
+                          active: _hasAttribute(Attribute.bold),
+                          onTap: () => _toggleAttribute(Attribute.bold),
+                        ),
+                        const SizedBox(width: 8),
+                        _InlineStyleBtn(
+                          icon: Icons.format_italic_rounded,
+                          active: _hasAttribute(Attribute.italic),
+                          onTap: () => _toggleAttribute(Attribute.italic),
+                        ),
+                        const SizedBox(width: 8),
+                        _InlineStyleBtn(
+                          icon: Icons.format_underline_rounded,
+                          active: _hasAttribute(Attribute.underline),
+                          onTap: () => _toggleAttribute(Attribute.underline),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.format_size_rounded, color: AppColors.textSecondary, size: 20),
+                          tooltip: 'More formatting',
+                          onPressed: _showFormattingSheet,
+                        ),
+                      ]),
+                      const SizedBox(height: 10),
+                    ],
                     Expanded(
                       child: QuillEditor.basic(
                         controller: _quillController,
@@ -285,6 +357,37 @@ class _ExportTile extends StatelessWidget {
   Widget build(BuildContext context) => ListTile(onTap: onTap,
     leading: Icon(icon, color: AppColors.gold),
     title: Text(label, style: const TextStyle(color: AppColors.textPrimary)));
+}
+
+class _StyleBtn extends StatelessWidget {
+  final IconData icon; final String label; final bool active; final VoidCallback onTap;
+  const _StyleBtn({required this.icon, required this.label, required this.active, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: GestureDetector(onTap: onTap,
+      child: Container(padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? AppColors.gold.withOpacity(0.18) : AppColors.glassFill,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: active ? AppColors.gold : AppColors.glassBorder)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 18, color: active ? AppColors.gold : AppColors.textPrimary),
+          const SizedBox(height: 3),
+          Text(label, style: TextStyle(color: active ? AppColors.gold : AppColors.textSecondary, fontSize: 11)),
+        ]))));
+}
+
+class _InlineStyleBtn extends StatelessWidget {
+  final IconData icon; final bool active; final VoidCallback onTap;
+  const _InlineStyleBtn({required this.icon, required this.active, required this.onTap});
+  @override
+  Widget build(BuildContext context) => GestureDetector(onTap: onTap,
+    child: Container(width: 36, height: 32,
+      decoration: BoxDecoration(
+        color: active ? AppColors.gold.withOpacity(0.18) : AppColors.glassFill,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: active ? AppColors.gold : AppColors.glassBorder)),
+      child: Icon(icon, size: 18, color: active ? AppColors.gold : AppColors.textSecondary)));
 }
 
 class _SizeBtn extends StatelessWidget {

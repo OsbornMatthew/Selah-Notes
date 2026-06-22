@@ -97,6 +97,7 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
       ),
       body: GlassBackground(
         child: SafeArea(
+          top: false,
           child: Column(children: [
             SizedBox(height: kToolbarHeight + 12),
             if (!_isLoading && _notes.isNotEmpty)

@@ -82,6 +82,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
       ),
       body: GlassBackground(
         child: SafeArea(
+          top: false,
           child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
               : (_notes.isEmpty

@@ -193,6 +193,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
       ),
       body: GlassBackground(
         child: SafeArea(
+          top: false,
           child: Column(children: [
             SizedBox(height: kToolbarHeight + 8),
             Padding(

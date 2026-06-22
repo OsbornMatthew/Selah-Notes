@@ -155,6 +155,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       ),
       body: GlassBackground(
         child: SafeArea(
+          top: false,
           child: _isLoading
               ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
               : (_notes.isEmpty ? _buildEmpty() : RefreshIndicator(

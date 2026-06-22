@@ -51,23 +51,24 @@ class NotesService {
 
   // ── Notes — active ────────────────────────────────────────────────────────
   static Future<List<Note>> getNotesByFolder(String folderId) async {
+    // Fetch ALL notes in the folder, then filter in-memory.
+    // Firestore equality filters exclude docs where the field is missing,
+    // so old notes without 'isArchived' would be invisible if we filter in the query.
     final snap = await _notesRef
         .where('folderId', isEqualTo: folderId)
-        .where('isArchived', isEqualTo: false)
         .get();
     return snap.docs
         .map((d) => Note.fromDoc(d))
-        .where((n) => !n.isDeleted)
+        .where((n) => !n.isDeleted && !n.isArchived)
         .toList();
   }
 
   static Future<List<Note>> getAllNotes() async {
-    final snap = await _notesRef
-        .where('isArchived', isEqualTo: false)
-        .get();
+    // Same reason — fetch all, filter in-memory so old notes are included.
+    final snap = await _notesRef.get();
     return snap.docs
         .map((d) => Note.fromDoc(d))
-        .where((n) => !n.isDeleted)
+        .where((n) => !n.isDeleted && !n.isArchived)
         .toList();
   }
 
@@ -86,12 +87,10 @@ class NotesService {
 
   // ── Archive ───────────────────────────────────────────────────────────────
   static Future<List<Note>> getArchivedNotes() async {
-    final snap = await _notesRef
-        .where('isArchived', isEqualTo: true)
-        .get();
+    final snap = await _notesRef.get();
     return snap.docs
         .map((d) => Note.fromDoc(d))
-        .where((n) => !n.isDeleted)
+        .where((n) => n.isArchived && !n.isDeleted)
         .toList();
   }
 
