@@ -12,7 +12,7 @@ workflows:
       - name: Fix Gradle version (override Codemagic auto-upgrade)
         script: |
           cd $CM_BUILD_DIR/android
-          sed -i '' 's/distributionUrl=.*/distributionUrl=https\\:\/\/services.gradle.org\/distributions\/gradle-8.11.1-all.zip/' \
+          sed -i '' 's/distributionUrl=.*/distributionUrl=https\\:\/\/services.gradle.org\/distributions\/gradle-8.13-all.zip/' \
             gradle/wrapper/gradle-wrapper.properties
           echo "Gradle wrapper now set to:"
           cat gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
