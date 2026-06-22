@@ -1,0 +1,42 @@
+workflows:
+  android-workflow:
+    name: Android Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      flutter: stable
+      java: 17
+
+    scripts:
+      - name: Fix Gradle version (override Codemagic auto-upgrade)
+        script: |
+          cd $CM_BUILD_DIR/android
+          sed -i '' 's/distributionUrl=.*/distributionUrl=https\\:\/\/services.gradle.org\/distributions\/gradle-8.11.1-all.zip/' \
+            gradle/wrapper/gradle-wrapper.properties
+          echo "Gradle wrapper now set to:"
+          cat gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
+
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+
+      - name: Build APK (debug)
+        script: |
+          flutter build apk --debug
+
+      - name: Build APK (release)
+        script: |
+          flutter build apk --release
+
+    artifacts:
+      - build/**/outputs/**/*.apk
+      - flutter_drive.log
+
+    publishing:
+      email:
+        recipients:
+          - your@email.com        # ← replace with your email
+        notify:
+          success: true
+          failure: true
