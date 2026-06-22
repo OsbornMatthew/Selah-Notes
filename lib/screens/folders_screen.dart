@@ -195,7 +195,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         child: SafeArea(
           top: false,
           child: Column(children: [
-            SizedBox(height: kToolbarHeight + 8),
+            SizedBox(height: kToolbarHeight + 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: GlassCard(

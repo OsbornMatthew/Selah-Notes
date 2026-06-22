@@ -99,7 +99,7 @@ class _RecycleBinScreenState extends State<RecycleBinScreen> {
         child: SafeArea(
           top: false,
           child: Column(children: [
-            SizedBox(height: kToolbarHeight + 12),
+            SizedBox(height: kToolbarHeight + 16),
             if (!_isLoading && _notes.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
