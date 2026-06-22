@@ -11,6 +11,7 @@ class GlassCard extends StatelessWidget {
   final double borderRadius;
   final double blurSigma;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final Color? fillColor;
   final Color? borderColor;
 
@@ -22,6 +23,7 @@ class GlassCard extends StatelessWidget {
     this.borderRadius = 18,
     this.blurSigma = 18,
     this.onTap,
+    this.onLongPress,
     this.fillColor,
     this.borderColor,
   });
@@ -69,11 +71,12 @@ class GlassCard extends StatelessWidget {
       content = Padding(padding: margin!, child: content);
     }
 
-    if (onTap != null) {
+    if (onTap != null || onLongPress != null) {
       return Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           borderRadius: radius,
           splashColor: AppColors.gold.withOpacity(0.08),
           highlightColor: AppColors.gold.withOpacity(0.04),

@@ -3,18 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/note.dart';
 import '../models/folder.dart';
 
-/// All reads/writes are scoped under users/{uid}/... so each signed-in
-/// person only ever sees their own folders and notes. Firestore's offline
-/// persistence (enabled in main.dart) means this also works without
-/// internet — writes queue locally and sync automatically once back online.
 class NotesService {
   static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   static String get _uid {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      throw StateError('NotesService used while no user is signed in.');
-    }
+    if (user == null) throw StateError('No user signed in.');
     return user.uid;
   }
 
@@ -24,17 +18,23 @@ class NotesService {
   static CollectionReference<Map<String, dynamic>> get _notesRef =>
       _db.collection('users').doc(_uid).collection('notes');
 
-  // ---------------- Folders ----------------
+  // ── Settings (pattern, etc.) ──────────────────────────────────────────────
+  static DocumentReference<Map<String, dynamic>> get _settingsRef =>
+      _db.collection('users').doc(_uid);
 
+  static Future<void> saveArchivePattern(String pattern) async {
+    await _settingsRef.set({'archivePattern': pattern}, SetOptions(merge: true));
+  }
+
+  static Future<String?> getArchivePattern() async {
+    final doc = await _settingsRef.get();
+    return doc.data()?['archivePattern'] as String?;
+  }
+
+  // ── Folders ───────────────────────────────────────────────────────────────
   static Future<List<Folder>> getAllFolders() async {
     final snap = await _foldersRef.get();
     return snap.docs.map((d) => Folder.fromDoc(d)).toList();
-  }
-
-  static Stream<List<Folder>> watchFolders() {
-    return _foldersRef.snapshots().map(
-          (snap) => snap.docs.map((d) => Folder.fromDoc(d)).toList(),
-        );
   }
 
   static Future<void> saveFolder(Folder folder) async {
@@ -42,54 +42,123 @@ class NotesService {
   }
 
   static Future<void> deleteFolder(String id) async {
-    // Delete all notes within this folder first
     final notesSnap = await _notesRef.where('folderId', isEqualTo: id).get();
     final batch = _db.batch();
-    for (final doc in notesSnap.docs) {
-      batch.delete(doc.reference);
-    }
+    for (final doc in notesSnap.docs) batch.delete(doc.reference);
     batch.delete(_foldersRef.doc(id));
     await batch.commit();
   }
 
-  // ---------------- Notes ----------------
-
+  // ── Notes — active ────────────────────────────────────────────────────────
   static Future<List<Note>> getNotesByFolder(String folderId) async {
-    final snap = await _notesRef.where('folderId', isEqualTo: folderId).get();
-    return snap.docs.map((d) => Note.fromDoc(d)).toList();
-  }
-
-  static Stream<List<Note>> watchNotesByFolder(String folderId) {
-    return _notesRef.where('folderId', isEqualTo: folderId).snapshots().map(
-          (snap) => snap.docs.map((d) => Note.fromDoc(d)).toList(),
-        );
+    final snap = await _notesRef
+        .where('folderId', isEqualTo: folderId)
+        .where('isArchived', isEqualTo: false)
+        .get();
+    return snap.docs
+        .map((d) => Note.fromDoc(d))
+        .where((n) => !n.isDeleted)
+        .toList();
   }
 
   static Future<List<Note>> getAllNotes() async {
-    final snap = await _notesRef.get();
-    return snap.docs.map((d) => Note.fromDoc(d)).toList();
+    final snap = await _notesRef
+        .where('isArchived', isEqualTo: false)
+        .get();
+    return snap.docs
+        .map((d) => Note.fromDoc(d))
+        .where((n) => !n.isDeleted)
+        .toList();
   }
 
   static Future<List<Note>> searchNotes(String query) async {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return [];
-    // Firestore doesn't support full-text search natively, so for a
-    // personal-scale notes app we fetch this user's notes and filter
-    // client-side. Fine for hundreds of notes; would need Algolia/
-    // a search extension if this ever needs to scale to thousands.
     final all = await getAllNotes();
-    return all
-        .where((n) =>
-            n.title.toLowerCase().contains(q) ||
-            n.content.toLowerCase().contains(q))
-        .toList();
+    return all.where((n) =>
+        n.title.toLowerCase().contains(q) ||
+        n.content.toLowerCase().contains(q)).toList();
   }
 
   static Future<void> saveNote(Note note) async {
     await _notesRef.doc(note.id).set(note.toMap());
   }
 
-  static Future<void> deleteNote(String id) async {
+  // ── Archive ───────────────────────────────────────────────────────────────
+  static Future<List<Note>> getArchivedNotes() async {
+    final snap = await _notesRef
+        .where('isArchived', isEqualTo: true)
+        .get();
+    return snap.docs
+        .map((d) => Note.fromDoc(d))
+        .where((n) => !n.isDeleted)
+        .toList();
+  }
+
+  static Future<void> archiveNote(Note note) async {
+    note.isArchived = true;
+    note.isPinned = false;
+    await saveNote(note);
+  }
+
+  static Future<void> unarchiveNote(Note note) async {
+    note.isArchived = false;
+    await saveNote(note);
+  }
+
+  static Future<void> archiveNotes(List<Note> notes) async {
+    final batch = _db.batch();
+    for (final n in notes) {
+      n.isArchived = true;
+      n.isPinned = false;
+      batch.set(_notesRef.doc(n.id), n.toMap());
+    }
+    await batch.commit();
+  }
+
+  // ── Recycle bin ───────────────────────────────────────────────────────────
+  static Future<List<Note>> getDeletedNotes() async {
+    final snap = await _notesRef.get();
+    final all = snap.docs.map((d) => Note.fromDoc(d)).toList();
+    // Auto-purge expired items (>30 days)
+    final expired = all.where((n) => n.isExpired).toList();
+    if (expired.isNotEmpty) {
+      final batch = _db.batch();
+      for (final n in expired) batch.delete(_notesRef.doc(n.id));
+      await batch.commit();
+    }
+    return all.where((n) => n.isDeleted && !n.isExpired).toList();
+  }
+
+  static Future<void> softDeleteNote(Note note) async {
+    note.deletedAt = DateTime.now();
+    note.isArchived = false;
+    await saveNote(note);
+  }
+
+  static Future<void> softDeleteNotes(List<Note> notes) async {
+    final batch = _db.batch();
+    final now = DateTime.now();
+    for (final n in notes) {
+      n.deletedAt = now;
+      n.isArchived = false;
+      batch.set(_notesRef.doc(n.id), n.toMap());
+    }
+    await batch.commit();
+  }
+
+  static Future<void> restoreNote(Note note) async {
+    note.deletedAt = null;
+    await saveNote(note);
+  }
+
+  static Future<void> permanentDeleteNote(String id) async {
     await _notesRef.doc(id).delete();
+  }
+
+  static Future<void> permanentDeleteNotes(List<Note> notes) async {
+    final batch = _db.batch();
+    for (final n in notes) batch.delete(_notesRef.doc(n.id));
+    await batch.commit();
   }
 }

@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:intl/intl.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/note.dart';
 import '../services/notes_database.dart';
-
+import '../services/export_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
@@ -12,12 +13,7 @@ class NoteViewScreen extends StatefulWidget {
   final bool startInEditMode;
   final bool isNewNote;
 
-  const NoteViewScreen({
-    super.key,
-    required this.note,
-    this.startInEditMode = false,
-    this.isNewNote = false,
-  });
+  const NoteViewScreen({super.key, required this.note, this.startInEditMode = false, this.isNewNote = false});
 
   @override
   State<NoteViewScreen> createState() => _NoteViewScreenState();
@@ -26,35 +22,58 @@ class NoteViewScreen extends StatefulWidget {
 class _NoteViewScreenState extends State<NoteViewScreen> {
   late bool _isEditing;
   late TextEditingController _titleController;
-  late TextEditingController _contentController;
+  late QuillController _quillController;
+  final FocusNode _editorFocus = FocusNode();
   bool _wasEverSaved = false;
+  bool _showToolbar = true;
 
   @override
   void initState() {
     super.initState();
     _isEditing = widget.startInEditMode;
     _titleController = TextEditingController(text: widget.note.title);
-    _contentController = TextEditingController(text: widget.note.content);
     _wasEverSaved = !widget.isNewNote;
+
+    // Load or init Quill Delta
+    Document doc;
+    try {
+      if (widget.note.content.isNotEmpty && widget.note.content.startsWith('[')) {
+        doc = Document.fromJson(jsonDecode(widget.note.content) as List);
+      } else if (widget.note.content.isNotEmpty) {
+        // Migrate plain text to Quill Delta
+        doc = Document()..insert(0, widget.note.content);
+      } else {
+        doc = Document();
+      }
+    } catch (_) {
+      doc = Document();
+    }
+    _quillController = QuillController(document: doc, selection: const TextSelection.collapsed(offset: 0));
   }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _contentController.dispose();
+    _quillController.dispose();
+    _editorFocus.dispose();
     super.dispose();
+  }
+
+  int get _wordCount {
+    final text = _quillController.document.toPlainText().trim();
+    if (text.isEmpty) return 0;
+    return text.split(RegExp(r'\s+')).length;
   }
 
   Future<void> _save() async {
     final title = _titleController.text.trim();
-    final content = _contentController.text;
+    final contentJson = jsonEncode(_quillController.document.toDelta().toJson());
+    final plainText = _quillController.document.toPlainText().trim();
 
-    if (widget.isNewNote && !_wasEverSaved && title.isEmpty && content.trim().isEmpty) {
-      return;
-    }
+    if (widget.isNewNote && !_wasEverSaved && title.isEmpty && plainText.isEmpty) return;
 
     widget.note.title = title;
-    widget.note.content = content;
+    widget.note.content = contentJson;
     widget.note.updatedAt = DateTime.now();
     await NotesService.saveNote(widget.note);
     _wasEverSaved = true;
@@ -73,27 +92,91 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
   Future<void> _toggleEdit() async {
     if (_isEditing) {
       await _save();
-      if (!_wasEverSaved) {
-        if (mounted) Navigator.pop(context, false);
-        return;
-      }
+      if (!_wasEverSaved) { if (mounted) Navigator.pop(context, false); return; }
       setState(() => _isEditing = false);
     } else {
       setState(() => _isEditing = true);
+      Future.delayed(const Duration(milliseconds: 100), () => _editorFocus.requestFocus());
     }
   }
 
-  void _shareNote() {
-    final title = _titleController.text.trim().isEmpty ? 'Untitled' : _titleController.text.trim();
-    final content = _contentController.text;
-    final text = '$title\n\n$content';
-    Share.share(text, subject: title);
+  void _showExportMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+        child: GlassCard(
+          blurSigma: 24,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(padding: EdgeInsets.only(top: 4, bottom: 12),
+                child: Text('Export Note', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 16))),
+              _ExportTile(icon: Icons.text_snippet_outlined, label: 'Export as Text (.txt)', onTap: () { Navigator.pop(ctx); ExportService.exportAsText(widget.note); }),
+              _ExportTile(icon: Icons.picture_as_pdf_outlined, label: 'Export as PDF', onTap: () { Navigator.pop(ctx); ExportService.exportAsPdf(widget.note); }),
+              _ExportTile(icon: Icons.image_outlined, label: 'Export as Image (.png)', onTap: () { Navigator.pop(ctx); ExportService.exportAsImage(widget.note, context); }),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
-  int get _wordCount {
-    final text = _contentController.text.trim();
-    if (text.isEmpty) return 0;
-    return text.split(RegExp(r'\s+')).length;
+  void _applyTextSize(String size) {
+    final sel = _quillController.selection;
+    if (sel.isCollapsed) return;
+    final attr = size == 'normal' ? Attribute.clone(Attribute.size, null) : SizeAttribute(size);
+    _quillController.formatSelection(attr);
+  }
+
+  void _applyTextColor(Color color) {
+    final sel = _quillController.selection;
+    if (sel.isCollapsed) return;
+    _quillController.formatSelection(ColorAttribute('#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}'));
+  }
+
+  void _showFormattingSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+        child: GlassCard(
+          blurSigma: 24,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(padding: EdgeInsets.only(top: 4, bottom: 12),
+                child: Text('Format Selected Text', style: TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 16))),
+              const Text('Text Size', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(children: [
+                _SizeBtn(label: 'Small', size: 'small', onTap: () { _applyTextSize('small'); Navigator.pop(ctx); }),
+                const SizedBox(width: 8),
+                _SizeBtn(label: 'Normal', size: 'normal', onTap: () { _applyTextSize('normal'); Navigator.pop(ctx); }),
+                const SizedBox(width: 8),
+                _SizeBtn(label: 'Large', size: 'large', onTap: () { _applyTextSize('large'); Navigator.pop(ctx); }),
+                const SizedBox(width: 8),
+                _SizeBtn(label: 'Huge', size: 'huge', onTap: () { _applyTextSize('huge'); Navigator.pop(ctx); }),
+              ]),
+              const SizedBox(height: 16),
+              const Text('Text Color', style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Row(children: [
+                _ColorBtn(color: AppColors.gold, label: 'Gold', onTap: () { _applyTextColor(AppColors.gold); Navigator.pop(ctx); }),
+                const SizedBox(width: 8),
+                _ColorBtn(color: AppColors.textPrimary, label: 'White', onTap: () { _applyTextColor(AppColors.textPrimary); Navigator.pop(ctx); }),
+                const SizedBox(width: 8),
+                _ColorBtn(color: AppColors.danger, label: 'Red', onTap: () { _applyTextColor(AppColors.danger); Navigator.pop(ctx); }),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -108,19 +191,16 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () async {
               final shouldPop = await _handleBack();
-              if (shouldPop && mounted) {
-                Navigator.pop(context, _wasEverSaved);
-              }
+              if (shouldPop && mounted) Navigator.pop(context, _wasEverSaved);
             },
           ),
           title: Text(_isEditing ? 'Editing' : 'Note'),
           actions: [
-            if (!_isEditing)
-              IconButton(
-                icon: const Icon(Icons.ios_share_rounded, size: 21),
-                tooltip: 'Share',
-                onPressed: _shareNote,
-              ),
+            if (_isEditing) ...[
+              IconButton(icon: const Icon(Icons.format_size_rounded), tooltip: 'Format', onPressed: _showFormattingSheet),
+            ] else ...[
+              IconButton(icon: const Icon(Icons.ios_share_rounded, size: 21), tooltip: 'Export', onPressed: _showExportMenu),
+            ],
             IconButton(
               icon: Icon(_isEditing ? Icons.check_rounded : Icons.edit_outlined, color: AppColors.gold),
               tooltip: _isEditing ? 'Save' : 'Edit',
@@ -139,18 +219,12 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Title
                     _isEditing
                         ? TextField(
                             controller: _titleController,
                             style: const TextStyle(color: AppColors.gold, fontSize: 21, fontWeight: FontWeight.w700),
-                            decoration: const InputDecoration(
-                              hintText: 'Title',
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              filled: false,
-                              contentPadding: EdgeInsets.zero,
-                            ),
+                            decoration: const InputDecoration(hintText: 'Title', border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, filled: false, contentPadding: EdgeInsets.zero),
                             onChanged: (_) => setState(() {}),
                           )
                         : Text(
@@ -158,50 +232,47 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
                             style: const TextStyle(color: AppColors.gold, fontSize: 21, fontWeight: FontWeight.w700),
                           ),
                     const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Last edited ${DateFormat('MMM d, yyyy · h:mm a').format(widget.note.updatedAt)}',
-                            style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5),
-                          ),
-                        ),
-                        Text(
-                          '$_wordCount ${_wordCount == 1 ? "word" : "words"}',
-                          style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5),
-                        ),
-                      ],
-                    ),
+                    Row(children: [
+                      Expanded(child: Text('Last edited ${DateFormat('MMM d, yyyy · h:mm a').format(widget.note.updatedAt)}',
+                        style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5))),
+                      Text('$_wordCount ${_wordCount == 1 ? "word" : "words"}',
+                        style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5)),
+                    ]),
                     const SizedBox(height: 14),
                     const Divider(color: AppColors.divider, height: 1),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
+                    // Editor
                     Expanded(
                       child: _isEditing
-                          ? TextField(
-                              controller: _contentController,
-                              maxLines: null,
-                              expands: true,
-                              textAlignVertical: TextAlignVertical.top,
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.55),
-                              decoration: const InputDecoration(
-                                hintText: 'Start writing...',
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                filled: false,
-                                contentPadding: EdgeInsets.zero,
+                          ? QuillEditor.basic(
+                              controller: _quillController,
+                              focusNode: _editorFocus,
+                              config: QuillEditorConfig(
+                                placeholder: 'Start writing...',
+                                padding: EdgeInsets.zero,
+                                customStyles: DefaultStyles(
+                                  paragraph: DefaultTextBlockStyle(
+                                    const TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.55),
+                                    HorizontalSpacing.zero, VerticalSpacing.zero, VerticalSpacing.zero, null),
+                                  placeHolder: DefaultTextBlockStyle(
+                                    const TextStyle(color: AppColors.textFaint, fontSize: 16),
+                                    HorizontalSpacing.zero, VerticalSpacing.zero, VerticalSpacing.zero, null),
+                                ),
                               ),
-                              onChanged: (_) => setState(() {}),
                             )
-                          : SingleChildScrollView(
-                              child: Text(
-                                _contentController.text.isEmpty
-                                    ? 'Nothing written yet. Tap the pencil icon to start editing.'
-                                    : _contentController.text,
-                                style: TextStyle(
-                                  color: _contentController.text.isEmpty ? AppColors.textSecondary : AppColors.textPrimary,
-                                  fontSize: 16,
-                                  height: 1.55,
+                          : QuillEditor.basic(
+                              controller: _quillController,
+                              config: QuillEditorConfig(
+                                readOnly: true,
+                                showCursor: false,
+                                padding: EdgeInsets.zero,
+                                customStyles: DefaultStyles(
+                                  paragraph: DefaultTextBlockStyle(
+                                    const TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.55),
+                                    HorizontalSpacing.zero, VerticalSpacing.zero, VerticalSpacing.zero, null),
+                                  placeHolder: DefaultTextBlockStyle(
+                                    const TextStyle(color: AppColors.textFaint, fontSize: 16),
+                                    HorizontalSpacing.zero, VerticalSpacing.zero, VerticalSpacing.zero, null),
                                 ),
                               ),
                             ),
@@ -215,4 +286,62 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
       ),
     );
   }
+}
+
+class _ExportTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _ExportTile({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    onTap: onTap,
+    leading: Icon(icon, color: AppColors.gold),
+    title: Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+  );
+}
+
+class _SizeBtn extends StatelessWidget {
+  final String label, size;
+  final VoidCallback onTap;
+  const _SizeBtn({required this.label, required this.size, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.glassFill,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.glassBorder),
+        ),
+        child: Text(label, textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.textPrimary, fontSize: 12)),
+      ),
+    ),
+  );
+}
+
+class _ColorBtn extends StatelessWidget {
+  final Color color;
+  final String label;
+  final VoidCallback onTap;
+  const _ColorBtn({required this.color, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+    ),
+  );
 }
