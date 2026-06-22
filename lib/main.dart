@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart' show FlutterQuillLocalizations;
 import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'widgets/glass_card.dart';
@@ -40,6 +42,13 @@ class SelahNotesApp extends StatelessWidget {
       theme: AppTheme.darkGold,
       darkTheme: AppTheme.darkGold,
       themeMode: ThemeMode.dark,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        FlutterQuillLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('en')],
       home: const _AuthGate(),
     );
   }
