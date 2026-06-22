@@ -2,26 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 import 'theme/app_theme.dart';
-import 'services/notes_database.dart';
-import 'services/firebase_sync_service.dart';
-import 'screens/login_screen.dart';
+import 'widgets/glass_card.dart';
 import 'screens/folders_screen.dart';
+import 'screens/auth_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('Firebase init: $e');
-  }
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  try {
-    await NotesDatabase.init();
-  } catch (e) {
-    debugPrint('Hive init: $e');
-  }
+  // Enable offline persistence: notes write instantly to a local cache and
+  // sync to the cloud automatically once the device is back online.
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -47,6 +45,8 @@ class SelahNotesApp extends StatelessWidget {
   }
 }
 
+/// Listens to Firebase's auth state and shows the login screen or the
+/// folders home screen depending on whether someone's signed in.
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
@@ -56,18 +56,19 @@ class _AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Color(0xFF0D0B08),
-            body: Center(
-              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: GlassBackground(
+              child: const Center(
+                child: CircularProgressIndicator(color: AppColors.gold),
+              ),
             ),
           );
         }
         if (snapshot.hasData) {
-          FirebaseSyncService.syncFromFirestore().catchError((_) {});
           return const FoldersScreen();
         }
-        return const LoginScreen();
+        return const AuthScreen();
       },
     );
   }

@@ -22,6 +22,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   final _uuid = const Uuid();
   List<Note> _notes = [];
   NoteSort _sort = NoteSort.newest;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -29,9 +30,14 @@ class _NotesListScreenState extends State<NotesListScreen> {
     _loadNotes();
   }
 
-  void _loadNotes() {
-    final notes = NotesDatabase.getNotesByFolder(widget.folder.id);
-    setState(() => _notes = _sortNotes(notes));
+  Future<void> _loadNotes() async {
+    setState(() => _isLoading = true);
+    final notes = await NotesService.getNotesByFolder(widget.folder.id);
+    if (!mounted) return;
+    setState(() {
+      _notes = _sortNotes(notes);
+      _isLoading = false;
+    });
   }
 
   List<Note> _sortNotes(List<Note> notes) {
@@ -50,7 +56,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
         list.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
         break;
     }
-    // Pinned notes always float to top, preserving the chosen sort within each group
     list.sort((a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0));
     return list;
   }
@@ -64,14 +69,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => NoteViewScreen(note: note, startInEditMode: true, isNewNote: true),
-      ),
+      MaterialPageRoute(builder: (_) => NoteViewScreen(note: note, startInEditMode: true, isNewNote: true)),
     );
-
     if (result == true) _loadNotes();
   }
 
@@ -93,14 +94,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Delete', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700)),
-                  ),
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary))),
+                  TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w700))),
                 ],
               ),
             ],
@@ -108,28 +103,29 @@ class _NotesListScreenState extends State<NotesListScreen> {
         ),
       ),
     );
-
     if (confirm == true) {
-      await NotesDatabase.deleteNote(note.id);
+      await NotesService.deleteNote(note.id);
       _loadNotes();
     }
   }
 
   Future<void> _togglePin(Note note) async {
     note.isPinned = !note.isPinned;
-    await NotesDatabase.saveNote(note);
+    await NotesService.saveNote(note);
     _loadNotes();
   }
 
   Future<void> _moveNote(Note note) async {
-    final folders = NotesDatabase.getAllFolders().where((f) => f.id != widget.folder.id).toList();
+    final allFolders = await NotesService.getAllFolders();
+    final folders = allFolders.where((f) => f.id != widget.folder.id).toList();
     if (folders.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No other folders to move to. Create one first.')),
       );
       return;
     }
-
+    if (!mounted) return;
     final target = await showModalBottomSheet<Folder>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -156,16 +152,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
         ),
       ),
     );
-
     if (target != null) {
       note.folderId = target.id;
-      await NotesDatabase.saveNote(note);
+      await NotesService.saveNote(note);
       _loadNotes();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Moved to "${target.name}"')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Moved to "${target.name}"')));
     }
   }
 
@@ -176,7 +167,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
       NoteSort.nameAsc: ('Title A → Z', Icons.sort_by_alpha_rounded),
       NoteSort.nameDesc: ('Title Z → A', Icons.sort_by_alpha_rounded),
     };
-
     final selected = await showModalBottomSheet<NoteSort>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -196,13 +186,9 @@ class _NotesListScreenState extends State<NotesListScreen> {
                 ListTile(
                   onTap: () => Navigator.pop(context, entry.key),
                   leading: Icon(entry.value.$2, color: _sort == entry.key ? AppColors.gold : AppColors.textSecondary),
-                  title: Text(
-                    entry.value.$1,
-                    style: TextStyle(
-                      color: _sort == entry.key ? AppColors.gold : AppColors.textPrimary,
-                      fontWeight: _sort == entry.key ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
+                  title: Text(entry.value.$1,
+                    style: TextStyle(color: _sort == entry.key ? AppColors.gold : AppColors.textPrimary,
+                      fontWeight: _sort == entry.key ? FontWeight.w600 : FontWeight.w400)),
                   trailing: _sort == entry.key ? const Icon(Icons.check_rounded, color: AppColors.gold) : null,
                 ),
             ],
@@ -210,12 +196,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
         ),
       ),
     );
-
     if (selected != null) {
-      setState(() {
-        _sort = selected;
-        _notes = _sortNotes(_notes);
-      });
+      setState(() { _sort = selected; _notes = _sortNotes(_notes); });
     }
   }
 
@@ -233,34 +215,36 @@ class _NotesListScreenState extends State<NotesListScreen> {
       ),
       body: GlassBackground(
         child: SafeArea(
-          child: _notes.isEmpty
-              ? _buildEmptyState()
-              : ListView.builder(
-                  padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 16, 16, 100),
-                  itemCount: _notes.length,
-                  itemBuilder: (context, index) {
-                    final note = _notes[index];
-                    return _NoteCard(
-                      note: note,
-                      onTap: () async {
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => NoteViewScreen(note: note, startInEditMode: false)),
-                        );
-                        if (result == true || result == 'deleted') _loadNotes();
-                      },
-                      onDelete: () => _deleteNote(note),
-                      onTogglePin: () => _togglePin(note),
-                      onMove: () => _moveNote(note),
-                    );
-                  },
-                ),
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+              : (_notes.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: _loadNotes,
+                      color: AppColors.gold,
+                      backgroundColor: AppColors.bgTop,
+                      child: ListView.builder(
+                        padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 16, 16, 100),
+                        itemCount: _notes.length,
+                        itemBuilder: (context, index) {
+                          final note = _notes[index];
+                          return _NoteCard(
+                            note: note,
+                            onTap: () async {
+                              final result = await Navigator.push(context,
+                                MaterialPageRoute(builder: (_) => NoteViewScreen(note: note, startInEditMode: false)));
+                              if (result == true || result == 'deleted') _loadNotes();
+                            },
+                            onDelete: () => _deleteNote(note),
+                            onTogglePin: () => _togglePin(note),
+                            onMove: () => _moveNote(note),
+                          );
+                        },
+                      ),
+                    )),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createNote,
-        child: const Icon(Icons.add_rounded),
-      ),
+      floatingActionButton: FloatingActionButton(onPressed: _createNote, child: const Icon(Icons.add_rounded)),
     );
   }
 
@@ -287,13 +271,7 @@ class _NoteCard extends StatelessWidget {
   final VoidCallback onTogglePin;
   final VoidCallback onMove;
 
-  const _NoteCard({
-    required this.note,
-    required this.onTap,
-    required this.onDelete,
-    required this.onTogglePin,
-    required this.onMove,
-  });
+  const _NoteCard({required this.note, required this.onTap, required this.onDelete, required this.onTogglePin, required this.onMove});
 
   @override
   Widget build(BuildContext context) {
@@ -312,34 +290,17 @@ class _NoteCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    if (note.isPinned) ...[
-                      const Icon(Icons.push_pin, size: 14, color: AppColors.gold),
-                      const SizedBox(width: 6),
-                    ],
-                    Expanded(
-                      child: Text(
-                        displayTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w600, fontSize: 16),
-                      ),
-                    ),
-                  ],
-                ),
+                Row(children: [
+                  if (note.isPinned) ...[const Icon(Icons.push_pin, size: 14, color: AppColors.gold), const SizedBox(width: 6)],
+                  Expanded(child: Text(displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w600, fontSize: 16))),
+                ]),
                 const SizedBox(height: 5),
-                Text(
-                  preview.isEmpty ? 'No content' : preview,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                ),
+                Text(preview.isEmpty ? 'No content' : preview, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                 const SizedBox(height: 7),
-                Text(
-                  DateFormat('MMM d, yyyy · h:mm a').format(note.updatedAt),
-                  style: const TextStyle(color: AppColors.textFaint, fontSize: 11),
-                ),
+                Text(DateFormat('MMM d, yyyy · h:mm a').format(note.updatedAt),
+                    style: const TextStyle(color: AppColors.textFaint, fontSize: 11)),
               ],
             ),
           ),
@@ -349,49 +310,26 @@ class _NoteCard extends StatelessWidget {
             surfaceTintColor: Colors.transparent,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.glassBorder)),
             onSelected: (value) {
-              switch (value) {
-                case 'pin':
-                  onTogglePin();
-                  break;
-                case 'move':
-                  onMove();
-                  break;
-                case 'delete':
-                  onDelete();
-                  break;
-              }
+              if (value == 'pin') onTogglePin();
+              if (value == 'move') onMove();
+              if (value == 'delete') onDelete();
             },
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'pin',
-                child: Row(
-                  children: [
-                    Icon(note.isPinned ? Icons.push_pin_outlined : Icons.push_pin, size: 18, color: AppColors.gold),
-                    const SizedBox(width: 10),
-                    Text(note.isPinned ? 'Unpin' : 'Pin to top', style: const TextStyle(color: AppColors.textPrimary)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'move',
-                child: Row(
-                  children: [
-                    Icon(Icons.drive_file_move_outlined, size: 18, color: AppColors.gold),
-                    SizedBox(width: 10),
-                    Text('Move to folder', style: TextStyle(color: AppColors.textPrimary)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
-                    SizedBox(width: 10),
-                    Text('Delete', style: TextStyle(color: AppColors.danger)),
-                  ],
-                ),
-              ),
+              PopupMenuItem(value: 'pin', child: Row(children: [
+                Icon(note.isPinned ? Icons.push_pin_outlined : Icons.push_pin, size: 18, color: AppColors.gold),
+                const SizedBox(width: 10),
+                Text(note.isPinned ? 'Unpin' : 'Pin to top', style: const TextStyle(color: AppColors.textPrimary)),
+              ])),
+              const PopupMenuItem(value: 'move', child: Row(children: [
+                Icon(Icons.drive_file_move_outline_rounded, size: 18, color: AppColors.gold),
+                SizedBox(width: 10),
+                Text('Move to folder', style: TextStyle(color: AppColors.textPrimary)),
+              ])),
+              const PopupMenuItem(value: 'delete', child: Row(children: [
+                Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+                SizedBox(width: 10),
+                Text('Delete', style: TextStyle(color: AppColors.danger)),
+              ])),
             ],
           ),
         ],

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/note.dart';
 import '../services/notes_database.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
@@ -47,29 +48,35 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     final content = _contentController.text;
+
+    if (widget.isNewNote && !_wasEverSaved && title.isEmpty && content.trim().isEmpty) {
+      return;
+    }
+
     widget.note.title = title;
     widget.note.content = content;
     widget.note.updatedAt = DateTime.now();
-    await NotesDatabase.saveNote(widget.note);
+    await NotesService.saveNote(widget.note);
     _wasEverSaved = true;
   }
 
-  Future<void> _handleBack() async {
+  Future<bool> _handleBack() async {
+    if (_isEditing) {
+      await _save();
+      if (!_wasEverSaved) return true;
+      setState(() => _isEditing = false);
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _toggleEdit() async {
     if (_isEditing) {
       await _save();
       if (!_wasEverSaved) {
         if (mounted) Navigator.pop(context, false);
         return;
       }
-      setState(() => _isEditing = false);
-    } else {
-      if (mounted) Navigator.pop(context, _wasEverSaved);
-    }
-  }
-
-  Future<void> _toggleEdit() async {
-    if (_isEditing) {
-      await _save();
       setState(() => _isEditing = false);
     } else {
       setState(() => _isEditing = true);
@@ -79,7 +86,8 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
   void _shareNote() {
     final title = _titleController.text.trim().isEmpty ? 'Untitled' : _titleController.text.trim();
     final content = _contentController.text;
-    Share.share('$title\n\n$content', subject: title);
+    final text = '$title\n\n$content';
+    Share.share(text, subject: title);
   }
 
   int get _wordCount {
@@ -90,19 +98,20 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop) return;
-        await _handleBack();
-      },
+    return WillPopScope(
+      onWillPop: _handleBack,
       child: Scaffold(
         extendBodyBehindAppBar: true,
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: _handleBack,
+            onPressed: () async {
+              final shouldPop = await _handleBack();
+              if (shouldPop && mounted) {
+                Navigator.pop(context, _wasEverSaved);
+              }
+            },
           ),
           title: Text(_isEditing ? 'Editing' : 'Note'),
           actions: [

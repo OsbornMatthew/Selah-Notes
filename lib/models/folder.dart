@@ -1,16 +1,8 @@
-import 'package:hive/hive.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-part 'folder.g.dart';
-
-@HiveType(typeId: 1)
-class Folder extends HiveObject {
-  @HiveField(0)
+class Folder {
   String id;
-
-  @HiveField(1)
   String name;
-
-  @HiveField(2)
   DateTime createdAt;
 
   Folder({
@@ -18,4 +10,20 @@ class Folder extends HiveObject {
     required this.name,
     required this.createdAt,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+
+  factory Folder.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    return Folder(
+      id: doc.id,
+      name: (data['name'] ?? '') as String,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
 }

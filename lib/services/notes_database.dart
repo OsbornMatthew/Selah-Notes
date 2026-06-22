@@ -1,44 +1,84 @@
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/note.dart';
 import '../models/folder.dart';
-import 'firebase_sync_service.dart';
 
-class NotesDatabase {
-  static const String notesBoxName = 'notes';
-  static const String foldersBoxName = 'folders';
+/// All reads/writes are scoped under users/{uid}/... so each signed-in
+/// person only ever sees their own folders and notes. Firestore's offline
+/// persistence (enabled in main.dart) means this also works without
+/// internet — writes queue locally and sync automatically once back online.
+class NotesService {
+  static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
-  static Box<Note>? _notesBox;
-  static Box<Folder>? _foldersBox;
-
-  static Future<void> init() async {
-    await Hive.initFlutter();
-
-    // Guard against double-registration on hot restart
-    if (!Hive.isAdapterRegistered(NoteAdapter().typeId)) {
-      Hive.registerAdapter(NoteAdapter());
+  static String get _uid {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw StateError('NotesService used while no user is signed in.');
     }
-    if (!Hive.isAdapterRegistered(FolderAdapter().typeId)) {
-      Hive.registerAdapter(FolderAdapter());
-    }
-
-    _notesBox = await Hive.openBox<Note>(notesBoxName);
-    _foldersBox = await Hive.openBox<Folder>(foldersBoxName);
+    return user.uid;
   }
 
-  static Box<Note> get notesBox => _notesBox!;
-  static Box<Folder> get foldersBox => _foldersBox!;
+  static CollectionReference<Map<String, dynamic>> get _foldersRef =>
+      _db.collection('users').doc(_uid).collection('folders');
 
-  // ─── NOTES ──────────────────────────────────────────────────
+  static CollectionReference<Map<String, dynamic>> get _notesRef =>
+      _db.collection('users').doc(_uid).collection('notes');
 
-  static List<Note> getAllNotes() => notesBox.values.toList();
+  // ---------------- Folders ----------------
 
-  static List<Note> getNotesByFolder(String folderId) =>
-      notesBox.values.where((n) => n.folderId == folderId).toList();
+  static Future<List<Folder>> getAllFolders() async {
+    final snap = await _foldersRef.get();
+    return snap.docs.map((d) => Folder.fromDoc(d)).toList();
+  }
 
-  static List<Note> searchNotes(String query) {
+  static Stream<List<Folder>> watchFolders() {
+    return _foldersRef.snapshots().map(
+          (snap) => snap.docs.map((d) => Folder.fromDoc(d)).toList(),
+        );
+  }
+
+  static Future<void> saveFolder(Folder folder) async {
+    await _foldersRef.doc(folder.id).set(folder.toMap());
+  }
+
+  static Future<void> deleteFolder(String id) async {
+    // Delete all notes within this folder first
+    final notesSnap = await _notesRef.where('folderId', isEqualTo: id).get();
+    final batch = _db.batch();
+    for (final doc in notesSnap.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(_foldersRef.doc(id));
+    await batch.commit();
+  }
+
+  // ---------------- Notes ----------------
+
+  static Future<List<Note>> getNotesByFolder(String folderId) async {
+    final snap = await _notesRef.where('folderId', isEqualTo: folderId).get();
+    return snap.docs.map((d) => Note.fromDoc(d)).toList();
+  }
+
+  static Stream<List<Note>> watchNotesByFolder(String folderId) {
+    return _notesRef.where('folderId', isEqualTo: folderId).snapshots().map(
+          (snap) => snap.docs.map((d) => Note.fromDoc(d)).toList(),
+        );
+  }
+
+  static Future<List<Note>> getAllNotes() async {
+    final snap = await _notesRef.get();
+    return snap.docs.map((d) => Note.fromDoc(d)).toList();
+  }
+
+  static Future<List<Note>> searchNotes(String query) async {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return [];
-    return notesBox.values
+    // Firestore doesn't support full-text search natively, so for a
+    // personal-scale notes app we fetch this user's notes and filter
+    // client-side. Fine for hundreds of notes; would need Algolia/
+    // a search extension if this ever needs to scale to thousands.
+    final all = await getAllNotes();
+    return all
         .where((n) =>
             n.title.toLowerCase().contains(q) ||
             n.content.toLowerCase().contains(q))
@@ -46,31 +86,10 @@ class NotesDatabase {
   }
 
   static Future<void> saveNote(Note note) async {
-    await notesBox.put(note.id, note);
-    FirebaseSyncService.uploadNote(note).catchError((_) {});
+    await _notesRef.doc(note.id).set(note.toMap());
   }
 
   static Future<void> deleteNote(String id) async {
-    await notesBox.delete(id);
-    FirebaseSyncService.deleteNote(id).catchError((_) {});
-  }
-
-  // ─── FOLDERS ────────────────────────────────────────────────
-
-  static List<Folder> getAllFolders() => foldersBox.values.toList();
-
-  static Future<void> saveFolder(Folder folder) async {
-    await foldersBox.put(folder.id, folder);
-    FirebaseSyncService.uploadFolder(folder).catchError((_) {});
-  }
-
-  static Future<void> deleteFolder(String id) async {
-    final notesToDelete =
-        notesBox.values.where((n) => n.folderId == id).map((n) => n.id).toList();
-    for (final noteId in notesToDelete) {
-      await notesBox.delete(noteId);
-    }
-    await foldersBox.delete(id);
-    FirebaseSyncService.deleteFolder(id).catchError((_) {});
+    await _notesRef.doc(id).delete();
   }
 }

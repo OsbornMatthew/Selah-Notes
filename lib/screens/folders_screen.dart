@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
-import 'login_screen.dart';
 import 'package:uuid/uuid.dart';
 import '../models/folder.dart';
 import '../models/note.dart';
 import '../services/notes_database.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import 'notes_list_screen.dart';
@@ -24,9 +23,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
   final _searchController = TextEditingController();
 
   List<Folder> _folders = [];
+  Map<String, int> _noteCounts = {};
   List<Note> _searchResults = [];
   FolderSort _sort = FolderSort.newest;
   bool _isSearching = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -40,10 +41,21 @@ class _FoldersScreenState extends State<FoldersScreen> {
     super.dispose();
   }
 
-  void _loadFolders() {
-    final folders = NotesDatabase.getAllFolders();
+  Future<void> _loadFolders() async {
+    setState(() => _isLoading = true);
+    final folders = await NotesService.getAllFolders();
+    final allNotes = await NotesService.getAllNotes();
+
+    final counts = <String, int>{};
+    for (final n in allNotes) {
+      counts[n.folderId] = (counts[n.folderId] ?? 0) + 1;
+    }
+
+    if (!mounted) return;
     setState(() {
       _folders = _sortFolders(folders);
+      _noteCounts = counts;
+      _isLoading = false;
     });
   }
 
@@ -66,7 +78,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
     return list;
   }
 
-  void _onSearchChanged(String query) {
+  Future<void> _onSearchChanged(String query) async {
     if (query.trim().isEmpty) {
       setState(() {
         _isSearching = false;
@@ -74,11 +86,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
       });
       return;
     }
-    setState(() {
-      _isSearching = true;
-      _searchResults = NotesDatabase.searchNotes(query)
-        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    });
+    setState(() => _isSearching = true);
+    final results = await NotesService.searchNotes(query);
+    results.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    if (!mounted) return;
+    setState(() => _searchResults = results);
   }
 
   Future<void> _createFolder() async {
@@ -106,7 +118,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
     if (name != null && name.isNotEmpty) {
       final folder = Folder(id: _uuid.v4(), name: name, createdAt: DateTime.now());
-      await NotesDatabase.saveFolder(folder);
+      await NotesService.saveFolder(folder);
       _loadFolders();
     }
   }
@@ -122,22 +134,37 @@ class _FoldersScreenState extends State<FoldersScreen> {
         ),
         actions: [
           _DialogButton(label: 'Cancel', onTap: () => Navigator.pop(context, false)),
-          _DialogButton(
-            label: 'Delete',
-            isDanger: true,
-            onTap: () => Navigator.pop(context, true),
-          ),
+          _DialogButton(label: 'Delete', isDanger: true, onTap: () => Navigator.pop(context, true)),
         ],
       ),
     );
 
     if (confirm == true) {
-      await NotesDatabase.deleteFolder(folder.id);
+      await NotesService.deleteFolder(folder.id);
       _loadFolders();
     }
   }
 
-  int _noteCount(String folderId) => NotesDatabase.getNotesByFolder(folderId).length;
+  Future<void> _confirmSignOut() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => _GlassDialog(
+        title: 'Log out?',
+        child: const Text(
+          "You'll need to log in again to see your notes. Your notes stay safely saved to your account.",
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          _DialogButton(label: 'Cancel', onTap: () => Navigator.pop(context, false)),
+          _DialogButton(label: 'Log out', isDanger: true, onTap: () => Navigator.pop(context, true)),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await AuthService.signOut();
+      // _AuthGate's stream listener will automatically swap to the login screen.
+    }
+  }
 
   void _showSortMenu() async {
     final selected = await showModalBottomSheet<FolderSort>(
@@ -155,6 +182,8 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final email = AuthService.currentUser?.email ?? '';
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.transparent,
@@ -162,23 +191,32 @@ class _FoldersScreenState extends State<FoldersScreen> {
         title: const Text('Selah Notes'),
         centerTitle: false,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.sort_rounded),
-            tooltip: 'Sort',
-            onPressed: _showSortMenu,
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await AuthService.signOut();
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (_) => false,
-                );
-              }
+          IconButton(icon: const Icon(Icons.sort_rounded), tooltip: 'Sort', onPressed: _showSortMenu),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.account_circle_outlined, color: AppColors.gold),
+            color: AppColors.bgTop,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.glassBorder)),
+            onSelected: (value) {
+              if (value == 'logout') _confirmSignOut();
             },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                enabled: false,
+                child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout_rounded, size: 18, color: AppColors.danger),
+                    SizedBox(width: 10),
+                    Text('Log out', style: TextStyle(color: AppColors.danger)),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(width: 4),
         ],
@@ -192,7 +230,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: GlassCard(
                   padding: const EdgeInsets.symmetric(horizontal: 6),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: 16,
                   child: TextField(
                     controller: _searchController,
                     onChanged: _onSearchChanged,
@@ -219,7 +257,9 @@ class _FoldersScreenState extends State<FoldersScreen> {
               ),
               const SizedBox(height: 10),
               Expanded(
-                child: _isSearching ? _buildSearchResults() : _buildFolderList(),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.gold))
+                    : (_isSearching ? _buildSearchResults() : _buildFolderList()),
               ),
             ],
           ),
@@ -237,11 +277,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
   Widget _buildSearchResults() {
     if (_searchResults.isEmpty) {
-      return _buildEmptyState(
-        icon: Icons.search_off_rounded,
-        title: 'No matches found',
-        subtitle: 'Try a different search term',
-      );
+      return _buildEmptyState(icon: Icons.search_off_rounded, title: 'No matches found', subtitle: 'Try a different search term');
     }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
@@ -265,10 +301,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
           child: Row(
             children: [
               if (note.isPinned)
-                const Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Icon(Icons.push_pin, size: 14, color: AppColors.gold),
-                ),
+                const Padding(padding: EdgeInsets.only(right: 8), child: Icon(Icons.push_pin, size: 14, color: AppColors.gold)),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,10 +313,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
-                    Text(
-                      'in ${folder.name}',
-                      style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5),
-                    ),
+                    Text('in ${folder.name}', style: const TextStyle(color: AppColors.textFaint, fontSize: 11.5)),
                   ],
                 ),
               ),
@@ -296,64 +326,57 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
   Widget _buildFolderList() {
     if (_folders.isEmpty) {
-      return _buildEmptyState(
-        icon: Icons.folder_open_outlined,
-        title: 'No folders yet',
-        subtitle: 'Tap "New Folder" to get started',
-      );
+      return _buildEmptyState(icon: Icons.folder_open_outlined, title: 'No folders yet', subtitle: 'Tap "New Folder" to get started');
     }
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-      itemCount: _folders.length,
-      itemBuilder: (context, index) {
-        final folder = _folders[index];
-        return GlassCard(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => NotesListScreen(folder: folder)),
-            );
-            _loadFolders();
-          },
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.goldMuted.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.glassBorder),
+    return RefreshIndicator(
+      onRefresh: _loadFolders,
+      color: AppColors.gold,
+      backgroundColor: AppColors.bgTop,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+        itemCount: _folders.length,
+        itemBuilder: (context, index) {
+          final folder = _folders[index];
+          final count = _noteCounts[folder.id] ?? 0;
+          return GlassCard(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => NotesListScreen(folder: folder)));
+              _loadFolders();
+            },
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: AppColors.goldMuted.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.glassBorder),
+                  ),
+                  child: const Icon(Icons.folder_rounded, color: AppColors.gold),
                 ),
-                child: const Icon(Icons.folder_rounded, color: AppColors.gold),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      folder.name,
-                      style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${_noteCount(folder.id)} ${_noteCount(folder.id) == 1 ? "note" : "notes"}',
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                    ),
-                  ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(folder.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+                      const SizedBox(height: 3),
+                      Text('$count ${count == 1 ? "note" : "notes"}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    ],
+                  ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textSecondary),
-                onPressed: () => _deleteFolder(folder),
-              ),
-            ],
-          ),
-        );
-      },
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textSecondary),
+                  onPressed: () => _deleteFolder(folder),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
