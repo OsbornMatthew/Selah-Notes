@@ -9,17 +9,40 @@ workflows:
       java: 17
 
     scripts:
+      # ── Step 1: Block Codemagic's auto-upgrade before anything else ──────────
+      # Codemagic runs its own "Upgrading build.gradle / gradle.properties" step
+      # automatically and overwrites the wrapper to gradle-8.14.0 — a version
+      # that does NOT exist on services.gradle.org. We pin it back to 8.13
+      # (the last real 8.x release) immediately so every subsequent step uses it.
+      - name: Pin Gradle wrapper to 8.13 (block Codemagic auto-upgrade)
+        script: |
+          WRAPPER="$CM_BUILD_DIR/android/gradle/wrapper/gradle-wrapper.properties"
+          # Force the exact URL — no sed, no substitution that could mis-escape
+          cat > "$WRAPPER" << 'PROPS'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.13-all.zip
+          PROPS
+          echo "=== Wrapper pinned ==="
+          cat "$WRAPPER"
+
       - name: Get Flutter packages
         script: |
           flutter pub get
 
-      - name: Build split APKs (release — smaller per-device downloads)
+      # ── Step 2: Verify wrapper didn't get overwritten again ──────────────────
+      - name: Verify Gradle wrapper version
         script: |
-          # --split-per-abi tells Flutter to produce one APK per CPU architecture.
-          # The arm64-v8a APK (modern phones) is ~35-45% smaller than a fat APK.
+          echo "=== Final wrapper contents ==="
+          cat "$CM_BUILD_DIR/android/gradle/wrapper/gradle-wrapper.properties"
+
+      - name: Build split APKs (release)
+        script: |
           flutter build apk --release --split-per-abi
 
-      - name: Build debug APK (for quick device testing)
+      - name: Build debug APK
         script: |
           flutter build apk --debug
 
