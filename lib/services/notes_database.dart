@@ -31,6 +31,15 @@ class NotesService {
     return doc.data()?['archivePattern'] as String?;
   }
 
+  static Future<void> saveArchivePassword(String password) async {
+    await _settingsRef.set({'archivePassword': password}, SetOptions(merge: true));
+  }
+
+  static Future<String?> getArchivePassword() async {
+    final doc = await _settingsRef.get();
+    return doc.data()?['archivePassword'] as String?;
+  }
+
   // ── Folders ───────────────────────────────────────────────────────────────
   static Future<List<Folder>> getAllFolders() async {
     final snap = await _foldersRef.get();

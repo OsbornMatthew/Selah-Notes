@@ -115,20 +115,32 @@ class _FoldersScreenState extends State<FoldersScreen> {
   }
 
   Future<void> _openArchive() async {
-    final savedPattern = await NotesService.getArchivePattern();
-    if (savedPattern == null) {
-      // First time: prompt to set a pattern
+    final savedPassword = await NotesService.getArchivePassword();
+    if (savedPassword == null) {
+      // First time: prompt to set a password
       final result = await Navigator.push(context,
         MaterialPageRoute(builder: (_) => const PatternLockScreen(mode: PatternLockMode.setup)));
       if (result != true) return;
     } else {
-      // Verify pattern
+      // Verify password
       final result = await Navigator.push(context,
         MaterialPageRoute(builder: (_) => const PatternLockScreen(mode: PatternLockMode.verify)));
       if (result != true) return;
     }
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => const ArchiveScreen()));
+  }
+
+  Future<void> _changeArchivePassword() async {
+    final savedPassword = await NotesService.getArchivePassword();
+    if (savedPassword == null) {
+      // No password set yet, just set one directly
+      await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => const PatternLockScreen(mode: PatternLockMode.setup)));
+      return;
+    }
+    await Navigator.push(context,
+      MaterialPageRoute(builder: (_) => const PatternLockScreen(mode: PatternLockMode.change)));
   }
 
   Future<void> _confirmSignOut() async {
@@ -176,6 +188,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.glassBorder)),
             onSelected: (v) {
               if (v == 'archive') _openArchive();
+              if (v == 'change_password') _changeArchivePassword();
               if (v == 'bin') Navigator.push(context, MaterialPageRoute(builder: (_) => const RecycleBinScreen()));
               if (v == 'logout') _confirmSignOut();
             },
@@ -183,6 +196,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
               PopupMenuItem(enabled: false, child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5))),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'archive', child: Row(children: [Icon(Icons.archive_outlined, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Archive', style: TextStyle(color: AppColors.textPrimary))])),
+              const PopupMenuItem(value: 'change_password', child: Row(children: [Icon(Icons.password_rounded, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Change Archive Password', style: TextStyle(color: AppColors.textPrimary))])),
               const PopupMenuItem(value: 'bin', child: Row(children: [Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Recycle Bin', style: TextStyle(color: AppColors.textPrimary))])),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout_rounded, size: 18, color: AppColors.danger), SizedBox(width: 10), Text('Log out', style: TextStyle(color: AppColors.danger))])),
@@ -195,7 +209,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         child: SafeArea(
           top: false,
           child: Column(children: [
-            SizedBox(height: kToolbarHeight + 16),
+            SizedBox(height: kToolbarHeight + 28),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: GlassCard(
