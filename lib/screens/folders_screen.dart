@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/folder.dart';
 import '../models/note.dart';
@@ -32,13 +33,32 @@ class _FoldersScreenState extends State<FoldersScreen> {
   List<Note> _searchResults = [];
   FolderSort _sort = FolderSort.newest;
   ViewMode _view = ViewMode.list;
+  static const _kFolderViewKey = 'folders_view_mode';
   bool _isSearching = false;
   bool _isLoading = true;
   final Set<String> _selected = {};
   bool _isSelecting = false;
 
   @override
-  void initState() { super.initState(); _loadFolders(); }
+  void initState() {
+    super.initState();
+    _loadViewMode();
+    _loadFolders();
+  }
+
+  Future<void> _loadViewMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_kFolderViewKey);
+    if (saved != null && mounted) {
+      final idx = ViewMode.values.indexWhere((v) => v.name == saved);
+      if (idx != -1) setState(() => _view = ViewMode.values[idx]);
+    }
+  }
+
+  Future<void> _saveViewMode(ViewMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kFolderViewKey, mode.name);
+  }
 
   @override
   void dispose() { _searchController.dispose(); super.dispose(); }
@@ -291,7 +311,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
           IconButton(icon: const Icon(Icons.sort_rounded), onPressed: _showSortMenu),
           IconButton(
             icon: Icon(_view == ViewMode.list ? Icons.grid_view_rounded : _view == ViewMode.grid ? Icons.view_list_rounded : Icons.view_agenda_rounded),
-            onPressed: () => setState(() => _view = ViewMode.values[(_view.index + 1) % 3]),
+            onPressed: () {
+              final next = ViewMode.values[(_view.index + 1) % 3];
+              setState(() => _view = next);
+              _saveViewMode(next);
+            },
           ),
           PopupMenuButton<String>(
             icon: _buildAccountIcon(),

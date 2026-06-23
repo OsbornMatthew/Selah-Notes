@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../models/folder.dart';
@@ -25,12 +26,31 @@ class _NotesListScreenState extends State<NotesListScreen> {
   List<Note> _notes = [];
   NoteSort _sort = NoteSort.newest;
   ViewMode _view = ViewMode.list;
+  static const _kNotesViewKey = 'notes_view_mode';
   bool _isLoading = true;
   final Set<String> _selected = {};
   bool _isSelecting = false;
 
   @override
-  void initState() { super.initState(); _loadNotes(); }
+  void initState() {
+    super.initState();
+    _loadViewMode();
+    _loadNotes();
+  }
+
+  Future<void> _loadViewMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_kNotesViewKey);
+    if (saved != null && mounted) {
+      final idx = ViewMode.values.indexWhere((v) => v.name == saved);
+      if (idx != -1) setState(() => _view = ViewMode.values[idx]);
+    }
+  }
+
+  Future<void> _saveViewMode(ViewMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kNotesViewKey, mode.name);
+  }
 
   Future<void> _loadNotes() async {
     setState(() => _isLoading = true);
@@ -205,7 +225,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
           IconButton(icon: const Icon(Icons.sort_rounded), onPressed: _showSortMenu),
           IconButton(
             icon: Icon(_view == ViewMode.list ? Icons.grid_view_rounded : _view == ViewMode.grid ? Icons.view_list_rounded : Icons.view_agenda_rounded),
-            onPressed: () => setState(() => _view = ViewMode.values[(_view.index + 1) % 3]),
+            onPressed: () {
+              final next = ViewMode.values[(_view.index + 1) % 3];
+              setState(() => _view = next);
+              _saveViewMode(next);
+            },
           ),
           const SizedBox(width: 4),
         ],
