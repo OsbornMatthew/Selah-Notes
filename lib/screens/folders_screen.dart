@@ -164,6 +164,19 @@ class _FoldersScreenState extends State<FoldersScreen> {
     if (sel != null) setState(() { _sort = sel; _folders = _sortFolders(_folders); });
   }
 
+  Widget _buildAccountIcon() {
+    final photoUrl = AuthService.currentUser?.photoURL;
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 14,
+        backgroundColor: AppColors.glassFill,
+        backgroundImage: NetworkImage(photoUrl),
+        onBackgroundImageError: (_, __) {}, // fall through silently to backgroundColor if it fails to load
+      );
+    }
+    return const Icon(Icons.account_circle_outlined, color: AppColors.gold);
+  }
+
   @override
   Widget build(BuildContext context) {
     final email = AuthService.currentUser?.email ?? '';
@@ -183,7 +196,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             onPressed: () => setState(() => _view = ViewMode.values[(_view.index + 1) % 3]),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.account_circle_outlined, color: AppColors.gold),
+            icon: _buildAccountIcon(),
             color: AppColors.bgTop, surfaceTintColor: Colors.transparent,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.glassBorder)),
             onSelected: (v) {
@@ -193,7 +206,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
               if (v == 'logout') _confirmSignOut();
             },
             itemBuilder: (_) => [
-              PopupMenuItem(enabled: false, child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5))),
+              PopupMenuItem(enabled: false, child: Row(children: [
+                _buildAccountIcon(),
+                const SizedBox(width: 10),
+                Expanded(child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5), overflow: TextOverflow.ellipsis)),
+              ])),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'archive', child: Row(children: [Icon(Icons.archive_outlined, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Archive', style: TextStyle(color: AppColors.textPrimary))])),
               const PopupMenuItem(value: 'change_password', child: Row(children: [Icon(Icons.password_rounded, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Change Archive Password', style: TextStyle(color: AppColors.textPrimary))])),
@@ -209,7 +226,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         child: SafeArea(
           top: false,
           child: Column(children: [
-            SizedBox(height: kToolbarHeight + 28),
+            SizedBox(height: kToolbarHeight + 35),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: GlassCard(
