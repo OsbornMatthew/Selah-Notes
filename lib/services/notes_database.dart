@@ -31,11 +31,20 @@ class NotesService {
       _db.collection('users').doc(_uid);
 
   // ── Cache-first helpers ───────────────────────────────────────────────────
+  // On a brand-new sign-in the local cache exists but is empty — reading it
+  // does NOT throw, it just returns zero docs. That used to be mistaken for
+  // "this user has no data" until the background server refresh (fired
+  // separately) eventually landed and a later screen reload picked it up.
+  // To fix this without losing the cache-first speed boost on normal app
+  // opens, an empty cache result is now treated as inconclusive and we fall
+  // through to the server immediately so first-login data shows up right away.
   static Future<QuerySnapshot<Map<String, dynamic>>> _getQuery(
     Query<Map<String, dynamic>> query,
   ) async {
     try {
-      return await query.get(const GetOptions(source: Source.cache));
+      final cached = await query.get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty) return cached;
+      return await query.get(const GetOptions(source: Source.server));
     } catch (_) {
       return await query.get(const GetOptions(source: Source.server));
     }
@@ -45,7 +54,9 @@ class NotesService {
     DocumentReference<Map<String, dynamic>> ref,
   ) async {
     try {
-      return await ref.get(const GetOptions(source: Source.cache));
+      final cached = await ref.get(const GetOptions(source: Source.cache));
+      if (cached.exists) return cached;
+      return await ref.get(const GetOptions(source: Source.server));
     } catch (_) {
       return await ref.get(const GetOptions(source: Source.server));
     }

@@ -120,6 +120,63 @@ class _NotesListScreenState extends State<NotesListScreen> {
     }
   }
 
+  Future<void> _showNoteMenu(Note n) async {
+    final action = await showModalBottomSheet<String>(
+      context: context, backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+        child: GlassCard(
+          blurSigma: 20,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(n.title.isEmpty ? 'Untitled' : n.title,
+                style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 15),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            ListTile(
+              leading: Icon(n.isPinned ? Icons.push_pin_outlined : Icons.push_pin, color: AppColors.gold),
+              title: Text(n.isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'pin'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_copy_outlined, color: AppColors.gold),
+              title: const Text('Move to folder', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'move'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined, color: AppColors.gold),
+              title: const Text('Archive', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'archive'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+              title: const Text('Delete', style: TextStyle(color: AppColors.danger)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+            const Divider(color: AppColors.glassBorder, height: 1),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline_rounded, color: AppColors.textSecondary),
+              title: const Text('Select', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'select'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (action == 'pin') _togglePin(n);
+    if (action == 'move') _moveNote(n);
+    if (action == 'select') _toggleSelect(n.id);
+    if (action == 'archive') await NotesService.archiveNote(n).then((_) => _loadNotes());
+    if (action == 'delete') {
+      final ok = await showConfirmDialog(context,
+        title: 'Move to Recycle Bin?',
+        message: '"${n.title.isEmpty ? "This note" : n.title}" will be moved to the recycle bin.',
+        confirmLabel: 'Move', isDanger: true);
+      if (ok == true) await NotesService.softDeleteNote(n).then((_) => _loadNotes());
+    }
+  }
+
   void _showSortMenu() async {
     final sel = await showModalBottomSheet<NoteSort>(
       context: context, backgroundColor: Colors.transparent,
@@ -183,7 +240,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
         borderColor: sel ? AppColors.gold : (n.isPinned ? AppColors.gold.withOpacity(0.4) : AppColors.glassBorder),
-        onLongPress: () => _toggleSelect(n.id),
+        onLongPress: () { if (!_isSelecting) _showNoteMenu(n); },
         onTap: () {
           if (_isSelecting) { _toggleSelect(n.id); return; }
           Navigator.push(ctx, MaterialPageRoute(builder: (_) => NoteViewScreen(note: n, startInEditMode: false)))
@@ -213,24 +270,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
             Text(DateFormat('MMM d, yyyy · h:mm a').format(n.updatedAt),
               style: const TextStyle(color: AppColors.textFaint, fontSize: 10.5)),
           ])),
-          if (!_isSelecting)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 20),
-              color: AppColors.bgTop, surfaceTintColor: Colors.transparent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.glassBorder)),
-              onSelected: (v) {
-                if (v == 'pin') _togglePin(n);
-                if (v == 'move') _moveNote(n);
-                if (v == 'archive') NotesService.archiveNote(n).then((_) => _loadNotes());
-                if (v == 'delete') NotesService.softDeleteNote(n).then((_) => _loadNotes());
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(value: 'pin', child: _menuItem(n.isPinned ? Icons.push_pin_outlined : Icons.push_pin, n.isPinned ? 'Unpin' : 'Pin', AppColors.gold)),
-                PopupMenuItem(value: 'move', child: _menuItem(Icons.folder_copy_outlined, 'Move to folder', AppColors.gold)),
-                PopupMenuItem(value: 'archive', child: _menuItem(Icons.archive_outlined, 'Archive', AppColors.gold)),
-                PopupMenuItem(value: 'delete', child: _menuItem(Icons.delete_outline_rounded, 'Delete', AppColors.danger)),
-              ],
-            ),
         ]),
       );
     },
@@ -246,6 +285,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       return GlassCard(
         borderColor: sel ? AppColors.gold : AppColors.glassBorder,
         padding: const EdgeInsets.all(14),
+        onLongPress: () { if (!_isSelecting) _showNoteMenu(n); },
         onTap: () {
           if (_isSelecting) { _toggleSelect(n.id); return; }
           Navigator.push(ctx, MaterialPageRoute(builder: (_) => NoteViewScreen(note: n, startInEditMode: false)))
@@ -285,11 +325,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
     } catch (_) {}
     return content.replaceAll('\n', ' ');
   }
-
-  Widget _menuItem(IconData icon, String label, Color color) => Row(children: [
-    Icon(icon, size: 17, color: color), const SizedBox(width: 10),
-    Text(label, style: TextStyle(color: color == AppColors.danger ? AppColors.danger : AppColors.textPrimary)),
-  ]);
 
   Widget _buildEmpty() => Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
     Icon(Icons.note_alt_outlined, size: 72, color: AppColors.goldMuted),
