@@ -13,10 +13,15 @@ import 'screens/auth_screen.dart';
 
 Future<void> _initFirebase() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // Enable offline persistence with unlimited cache
+  // Offline persistence stays on, but the cache is capped instead of unlimited.
+  // An unlimited cache grows indefinitely with sync activity, and Firestore has
+  // to open/verify that on-disk cache on every cold start — the bigger it gets,
+  // the slower a fresh launch (fully-killed app, not resumed-from-background) becomes.
+  // 100MB comfortably covers a notes app's text content with room to spare,
+  // while keeping that cold-start cache-open step fast and predictable.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    cacheSizeBytes: 100 * 1024 * 1024, // 100MB cap
   );
 }
 

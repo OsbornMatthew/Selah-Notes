@@ -67,7 +67,19 @@ class _FoldersScreenState extends State<FoldersScreen> {
       case FolderSort.newest: list.sort((a, b) => b.createdAt.compareTo(a.createdAt)); break;
       case FolderSort.oldest: list.sort((a, b) => a.createdAt.compareTo(b.createdAt)); break;
     }
+    list.sort((a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0));
     return list;
+  }
+
+  Future<void> _togglePinFolder(Folder f) async {
+    f.isPinned = !f.isPinned;
+    await NotesService.saveFolder(f);
+    _loadFolders();
+  }
+
+  Future<void> _archiveFolder(Folder f) async {
+    await NotesService.archiveFolder(f);
+    _loadFolders();
   }
 
   void _toggleSelect(String id) {
@@ -100,7 +112,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
     setState(() => _searchResults = results);
   }
 
-  Future<void> _showGridFolderMenu(Folder f) async {
+  Future<void> _showFolderMenu(Folder f) async {
     final action = await showModalBottomSheet<String>(
       context: context, backgroundColor: Colors.transparent,
       builder: (ctx) => Padding(
@@ -113,6 +125,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
               child: Text(f.name, style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 15)),
             ),
             ListTile(
+              leading: Icon(f.isPinned ? Icons.push_pin_outlined : Icons.push_pin, color: AppColors.gold),
+              title: Text(f.isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'pin'),
+            ),
+            ListTile(
               leading: const Icon(Icons.drive_file_rename_outline_rounded, color: AppColors.gold),
               title: const Text('Rename', style: TextStyle(color: AppColors.textPrimary)),
               onTap: () => Navigator.pop(ctx, 'rename'),
@@ -122,11 +139,31 @@ class _FoldersScreenState extends State<FoldersScreen> {
               title: const Text('Move to Bin', style: TextStyle(color: AppColors.danger)),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined, color: AppColors.gold),
+              title: const Text('Archive', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'archive'),
+            ),
+            const Divider(color: AppColors.glassBorder, height: 1),
+            ListTile(
+              leading: const Icon(Icons.check_circle_outline_rounded, color: AppColors.textSecondary),
+              title: const Text('Select', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'select'),
+            ),
           ]),
         ),
       ),
     );
+    if (action == 'pin') _togglePinFolder(f);
     if (action == 'rename') _renameFolder(f);
+    if (action == 'select') _toggleSelect(f.id);
+    if (action == 'archive') {
+      final ok = await showConfirmDialog(context,
+        title: 'Archive Folder?',
+        message: '"${f.name}" will be moved to the Archive. Its notes stay safe inside it.',
+        confirmLabel: 'Archive', isDanger: false);
+      if (ok == true) await _archiveFolder(f);
+    }
     if (action == 'delete') {
       final ok = await showConfirmDialog(context,
         title: 'Move to Recycle Bin?',
@@ -338,8 +375,8 @@ class _FoldersScreenState extends State<FoldersScreen> {
       return GlassCard(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        borderColor: sel ? AppColors.gold : AppColors.glassBorder,
-        onLongPress: () => _toggleSelect(f.id),
+        borderColor: sel ? AppColors.gold : (f.isPinned ? AppColors.gold.withOpacity(0.4) : AppColors.glassBorder),
+        onLongPress: () { if (!_isSelecting) _showFolderMenu(f); },
         onTap: () {
           if (_isSelecting) { _toggleSelect(f.id); return; }
           Navigator.push(ctx, MaterialPageRoute(builder: (_) => NotesListScreen(folder: f))).then((_) => _loadFolders());
@@ -355,7 +392,10 @@ class _FoldersScreenState extends State<FoldersScreen> {
             child: const Icon(Icons.folder_rounded, color: AppColors.gold)),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(f.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+            Row(children: [
+              if (f.isPinned && !_isSelecting) ...[const Icon(Icons.push_pin, size: 13, color: AppColors.gold), const SizedBox(width: 5)],
+              Expanded(child: Text(f.name, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16))),
+            ]),
             const SizedBox(height: 3),
             Text('$count ${count == 1 ? "note" : "notes"}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
             if (showDetails) ...[
@@ -364,24 +404,6 @@ class _FoldersScreenState extends State<FoldersScreen> {
                 style: const TextStyle(color: AppColors.textFaint, fontSize: 11)),
             ],
           ])),
-          if (!_isSelecting)
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              IconButton(
-                icon: const Icon(Icons.drive_file_rename_outline_rounded, color: AppColors.textSecondary),
-                tooltip: 'Rename',
-                onPressed: () => _renameFolder(f),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textSecondary),
-                tooltip: 'Move to Bin',
-                onPressed: () async {
-                  final ok = await showConfirmDialog(context,
-                    title: 'Move to Recycle Bin?',
-                    message: '"${f.name}" and all its notes will be moved to the recycle bin.',
-                    confirmLabel: 'Move to Bin', isDanger: true);
-                  if (ok == true) { await NotesService.softDeleteFolder(f.id); _loadFolders(); }
-                }),
-            ]),
         ]),
       );
     },
@@ -396,19 +418,22 @@ class _FoldersScreenState extends State<FoldersScreen> {
       final sel = _selected.contains(f.id);
       final count = _noteCounts[f.id] ?? 0;
       return GlassCard(
-        borderColor: sel ? AppColors.gold : AppColors.glassBorder,
+        borderColor: sel ? AppColors.gold : (f.isPinned ? AppColors.gold.withOpacity(0.4) : AppColors.glassBorder),
         padding: const EdgeInsets.all(14),
         onTap: () {
           if (_isSelecting) { _toggleSelect(f.id); return; }
           Navigator.push(ctx, MaterialPageRoute(builder: (_) => NotesListScreen(folder: f))).then((_) => _loadFolders());
         },
-        onLongPress: () => _showGridFolderMenu(f),
+        onLongPress: () { if (!_isSelecting) _showFolderMenu(f); },
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             if (_isSelecting) Icon(sel ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
               color: sel ? AppColors.gold : AppColors.textSecondary, size: 18)
             else const Icon(Icons.folder_rounded, color: AppColors.gold, size: 28),
             const Spacer(),
+            if (f.isPinned && !_isSelecting) const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.push_pin, color: AppColors.gold, size: 14)),
             Text('$count', style: const TextStyle(color: AppColors.textFaint, fontSize: 12)),
           ]),
           const Spacer(),

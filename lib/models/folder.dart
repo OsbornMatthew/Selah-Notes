@@ -5,12 +5,16 @@ class Folder {
   String name;
   DateTime createdAt;
   DateTime? deletedAt; // non-null = soft-deleted (in recycle bin)
+  bool isPinned;
+  bool isArchived;
 
   Folder({
     required this.id,
     required this.name,
     required this.createdAt,
     this.deletedAt,
+    this.isPinned = false,
+    this.isArchived = false,
   });
 
   bool get isDeleted => deletedAt != null;
@@ -24,6 +28,8 @@ class Folder {
     'name': name,
     'createdAt': Timestamp.fromDate(createdAt),
     'deletedAt': deletedAt != null ? Timestamp.fromDate(deletedAt!) : null,
+    'isPinned': isPinned,
+    'isArchived': isArchived,
   };
 
   factory Folder.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -33,6 +39,8 @@ class Folder {
       name: (d['name'] ?? '') as String,
       createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       deletedAt: (d['deletedAt'] as Timestamp?)?.toDate(),
+      isPinned: (d['isPinned'] ?? false) as bool,
+      isArchived: (d['isArchived'] ?? false) as bool,
     );
   }
 }

@@ -96,7 +96,7 @@ class NotesService {
     _bgRefreshQuery(_foldersRef);
     return snap.docs
         .map((d) => Folder.fromDoc(d))
-        .where((f) => !f.isDeleted)
+        .where((f) => !f.isDeleted && !f.isArchived)
         .toList();
   }
 
@@ -244,6 +244,26 @@ class NotesService {
         .map((d) => Note.fromDoc(d))
         .where((n) => n.isArchived && !n.isDeleted)
         .toList();
+  }
+
+  static Future<List<Folder>> getArchivedFolders() async {
+    final snap = await _getQuery(_foldersRef);
+    _bgRefreshQuery(_foldersRef);
+    return snap.docs
+        .map((d) => Folder.fromDoc(d))
+        .where((f) => f.isArchived && !f.isDeleted)
+        .toList();
+  }
+
+  static Future<void> archiveFolder(Folder folder) async {
+    folder.isArchived = true;
+    folder.isPinned = false;
+    await saveFolder(folder);
+  }
+
+  static Future<void> unarchiveFolder(Folder folder) async {
+    folder.isArchived = false;
+    await saveFolder(folder);
   }
 
   static Future<void> archiveNote(Note note) async {
