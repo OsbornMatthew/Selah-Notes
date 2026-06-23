@@ -1,6 +1,6 @@
 workflows:
-  android-workflow:
-    name: Android Build
+  android-release:
+    name: Android Release (arm64-v8a)
     max_build_duration: 60
     instance_type: mac_mini_m2
 
@@ -9,15 +9,9 @@ workflows:
       java: 17
 
     scripts:
-      # ── Step 1: Block Codemagic's auto-upgrade before anything else ──────────
-      # Codemagic runs its own "Upgrading build.gradle / gradle.properties" step
-      # automatically and overwrites the wrapper to gradle-8.14.0 — a version
-      # that does NOT exist on services.gradle.org. We pin it back to 8.13
-      # (the last real 8.x release) immediately so every subsequent step uses it.
-      - name: Pin Gradle wrapper to 8.13 (block Codemagic auto-upgrade)
+      - name: Pin Gradle wrapper to 8.13
         script: |
           WRAPPER="$CM_BUILD_DIR/android/gradle/wrapper/gradle-wrapper.properties"
-          # Force the exact URL — no sed, no substitution that could mis-escape
           cat > "$WRAPPER" << 'PROPS'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
@@ -28,32 +22,21 @@ workflows:
           echo "=== Wrapper pinned ==="
           cat "$WRAPPER"
 
-      - name: Get Flutter packages
-        script: |
-          flutter pub get
+      - name: Flutter pub get
+        script: flutter pub get
 
-      # ── Step 2: Verify wrapper didn't get overwritten again ──────────────────
-      - name: Verify Gradle wrapper version
+      - name: Build arm64-v8a release APK
         script: |
-          echo "=== Final wrapper contents ==="
-          cat "$CM_BUILD_DIR/android/gradle/wrapper/gradle-wrapper.properties"
-
-      - name: Build split APKs (release)
-        script: |
-          flutter build apk --release --split-per-abi
-
-      - name: Build debug APK
-        script: |
-          flutter build apk --debug
+          flutter build apk --release
+          # arm64-v8a is already enforced via ndk.abiFilters in android/app/build.gradle
 
     artifacts:
-      - build/**/outputs/**/*.apk
-      - flutter_drive.log
+      - build/app/outputs/flutter-apk/app-release.apk
 
     publishing:
       email:
         recipients:
-          - your@email.com        # ← replace with your email
+          - your@email.com   # ← replace with your email
         notify:
           success: true
           failure: true
