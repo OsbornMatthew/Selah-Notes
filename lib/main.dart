@@ -13,15 +13,10 @@ import 'screens/auth_screen.dart';
 
 Future<void> _initFirebase() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // Offline persistence stays on, but the cache is capped instead of unlimited.
-  // An unlimited cache grows indefinitely with sync activity, and Firestore has
-  // to open/verify that on-disk cache on every cold start — the bigger it gets,
-  // the slower a fresh launch (fully-killed app, not resumed-from-background) becomes.
-  // 100MB comfortably covers a notes app's text content with room to spare,
-  // while keeping that cold-start cache-open step fast and predictable.
+  // Cap Firestore cache at 50 MB — smaller cache = faster cold-start open/verify.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
-    cacheSizeBytes: 100 * 1024 * 1024, // 100MB cap
+    cacheSizeBytes: 50 * 1024 * 1024, // 50 MB
   );
 }
 
@@ -41,7 +36,6 @@ void main() {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  // Transparent nav bar on Android
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // Kick off Firebase in background — app renders splash immediately
@@ -60,7 +54,6 @@ class SelahNotesApp extends StatelessWidget {
       theme: AppTheme.darkGold,
       darkTheme: AppTheme.darkGold,
       themeMode: ThemeMode.dark,
-      // Quill localizations only needed after login — loaded here once
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
@@ -68,7 +61,6 @@ class SelahNotesApp extends StatelessWidget {
         FlutterQuillLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en')],
-      // Faster page transitions on Android
       builder: (context, child) {
         return ScrollConfiguration(
           behavior: _FastScrollBehavior(),
@@ -89,11 +81,11 @@ class _FastScrollBehavior extends ScrollBehavior {
   @override
   Widget buildOverscrollIndicator(
       BuildContext context, Widget child, ScrollableDetails details) =>
-      child; // Remove glow effect — saves GPU work on every overscroll
+      child; // Remove glow — saves GPU on every overscroll
 }
 
-/// Shows a minimal splash while Firebase initialises.
-/// App renders its first frame WITHOUT waiting for Firebase.
+/// Shows the native-looking splash while Firebase initialises in the background.
+/// The first Flutter frame is painted WITHOUT waiting for Firebase at all.
 class _FirebaseGate extends StatefulWidget {
   const _FirebaseGate({required this.firebaseFuture});
   final Future<void> firebaseFuture;
@@ -127,9 +119,7 @@ class _FirebaseGateState extends State<_FirebaseGate> {
         ),
       );
     }
-    if (!_ready) {
-      return const _SplashScreen();
-    }
+    if (!_ready) return const _SplashScreen();
     return const _AuthGate();
   }
 }
@@ -142,40 +132,36 @@ class _SplashScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: GlassBackground(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Simple gold icon — no heavy widgets
-              Container(
-                width: 72, height: 72,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.gold.withOpacity(0.12),
-                  border: Border.all(color: AppColors.glassBorder, width: 1.5),
-                ),
-                child: const Icon(Icons.spa_outlined, color: AppColors.gold, size: 36),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Use the actual app icon asset — matches the native splash
+            Image.asset(
+              'assets/app_icon.png',
+              width: 96,
+              height: 96,
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Selah Notes',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
               ),
-              const SizedBox(height: 20),
-              const Text('Selah Notes',
-                style: TextStyle(
-                  color: AppColors.gold,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
+            ),
+            const SizedBox(height: 32),
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                color: AppColors.gold,
+                strokeWidth: 2,
               ),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 24, height: 24,
-                child: CircularProgressIndicator(
-                  color: AppColors.gold,
-                  strokeWidth: 2,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

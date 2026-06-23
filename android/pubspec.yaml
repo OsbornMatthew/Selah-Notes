@@ -1,7 +1,7 @@
 name: selah_notes
 description: "Selah Notes — a dark, gold, glassmorphic notes app with folders"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,19 +9,42 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.6
   uuid: ^4.3.3
-  intl: ^0.19.0
-  google_fonts: ^6.2.1
-  share_plus: ^10.1.2
+  intl: ^0.20.2
   firebase_core: ^3.8.0
   firebase_auth: ^5.3.3
   cloud_firestore: ^5.5.0
+  flutter_quill: ^11.5.1
+  pdf: ^3.11.1
+  screenshot: ^3.0.0
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.1
+  shared_preferences: ^2.3.2
+  connectivity_plus: ^6.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_native_splash: ^2.4.0
+
+# ── Native splash screen ─────────────────────────────────────────────────────
+# After running `flutter pub get`, run once:
+#   flutter pub run flutter_native_splash:create
+# This shows your icon on the dark background BEFORE the Flutter engine loads,
+# eliminating the blank/white flash at cold start.
+flutter_native_splash:
+  color: "#111111"
+  image: assets/app_icon.png
+  android_12:
+    color: "#111111"
+    image: assets/app_icon.png
+    icon_background_color: "#111111"
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/

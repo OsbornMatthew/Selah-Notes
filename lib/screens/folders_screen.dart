@@ -64,19 +64,27 @@ class _FoldersScreenState extends State<FoldersScreen> {
   void dispose() { _searchController.dispose(); super.dispose(); }
 
   Future<void> _loadFolders() async {
-    setState(() => _isLoading = true);
-    // Load folders, notes, and pre-warm archive password in parallel
-    final results = await Future.wait([
+    // ── Phase 1: paint from cache immediately (no spinner on normal opens) ──
+    // NotesService._getQuery() tries cache first — this returns in <30 ms
+    // if Firestore's local cache has data. The UI shows right away.
+    final cachedResults = await Future.wait([
       NotesService.getAllFolders(),
       NotesService.getAllNotes(),
-      NotesService.getArchivePassword(), // pre-warms cache → archive opens instantly
     ]);
-    final folders = results[0] as List<Folder>;
-    final allNotes = results[1] as List<Note>;
+    final folders = cachedResults[0] as List<Folder>;
+    final allNotes = cachedResults[1] as List<Note>;
     final counts = <String, int>{};
     for (final n in allNotes) counts[n.folderId] = (counts[n.folderId] ?? 0) + 1;
     if (!mounted) return;
-    setState(() { _folders = _sortFolders(folders); _noteCounts = counts; _isLoading = false; });
+    setState(() {
+      _folders = _sortFolders(folders);
+      _noteCounts = counts;
+      _isLoading = false; // show UI immediately
+    });
+
+    // ── Phase 2: pre-warm archive password cache in background ──
+    // Runs after the screen is already painted — user never waits for it.
+    NotesService.getArchivePassword().catchError((_) {});
   }
 
   List<Folder> _sortFolders(List<Folder> f) {

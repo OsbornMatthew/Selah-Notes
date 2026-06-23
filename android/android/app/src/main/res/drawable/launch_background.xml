@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/black" />
+    <!-- Dark background matching the app theme -->
+    <item>
+        <color android:color="#111111" />
+    </item>
+    <!-- Centered app icon on the native splash -->
+    <item
+        android:gravity="center"
+        android:width="144dp"
+        android:height="144dp">
+        <bitmap
+            android:src="@drawable/splash_icon"
+            android:gravity="center" />
+    </item>
 </layer-list>
