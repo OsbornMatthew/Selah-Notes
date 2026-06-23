@@ -12,15 +12,8 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
-if (flutterVersionCode == null) {
-    flutterVersionCode = '1'
-}
-
-def flutterVersionName = localProperties.getProperty('flutter.versionName')
-if (flutterVersionName == null) {
-    flutterVersionName = '1.0'
-}
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
+def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0'
 
 android {
     namespace "com.selahnotes.app"
@@ -42,6 +35,19 @@ android {
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        // Only keep English strings — saves ~600KB in release
+        resConfigs "en"
+    }
+
+    // ABI splits: instead of one fat APK containing arm32 + arm64 + x86_64,
+    // produce a separate APK per ABI. The arm64-v8a APK is ~40% smaller.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a"
+            universalApk false   // set true if you want a single fallback APK
+        }
     }
 
     buildTypes {
@@ -51,10 +57,14 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+        debug {
+            // Keep debug fast — no minification
+            minifyEnabled false
+            shrinkResources false
+        }
     }
 }
 
-// Built-in Kotlin: replaces the removed kotlinOptions block
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

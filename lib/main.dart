@@ -11,28 +11,31 @@ import 'widgets/glass_card.dart';
 import 'screens/folders_screen.dart';
 import 'screens/auth_screen.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
+Future<void> _initFirebase() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Enable offline persistence: notes write instantly to a local cache and
-  // sync to the cloud automatically once the device is back online.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
+}
+
+void main() {
+  // Ensure Flutter engine is ready but don't await Firebase yet —
+  // the app renders its first frame immediately, then Firebase initialises
+  // in the background. This cuts cold-start blank-screen time significantly.
+  WidgetsFlutterBinding.ensureInitialized();
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
   ));
 
-  runApp(const SelahNotesApp());
+  runApp(SelahNotesApp(firebaseFuture: _initFirebase()));
 }
 
 class SelahNotesApp extends StatelessWidget {
-  const SelahNotesApp({super.key});
+  const SelahNotesApp({super.key, required this.firebaseFuture});
+  final Future<void> firebaseFuture;
 
   @override
   Widget build(BuildContext context) {
@@ -49,13 +52,63 @@ class SelahNotesApp extends StatelessWidget {
         FlutterQuillLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en')],
-      home: const _AuthGate(),
+      home: _FirebaseGate(firebaseFuture: firebaseFuture),
     );
   }
 }
 
-/// Listens to Firebase's auth state and shows the login screen or the
-/// folders home screen depending on whether someone's signed in.
+/// Shows a minimal splash while Firebase initialises, then hands off to
+/// the auth gate. The app paints its very first frame without waiting for
+/// Firebase, so users see the UI almost instantly.
+class _FirebaseGate extends StatefulWidget {
+  const _FirebaseGate({required this.firebaseFuture});
+  final Future<void> firebaseFuture;
+
+  @override
+  State<_FirebaseGate> createState() => _FirebaseGateState();
+}
+
+class _FirebaseGateState extends State<_FirebaseGate> {
+  bool _ready = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.firebaseFuture.then((_) {
+      if (mounted) setState(() => _ready = true);
+    }).catchError((e) {
+      if (mounted) setState(() => _error = e);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Text('Startup error: $_error',
+              style: const TextStyle(color: AppColors.danger)),
+        ),
+      );
+    }
+    if (!_ready) {
+      // Lightweight splash — no Firebase dependency yet
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: GlassBackground(
+          child: const Center(
+            child: CircularProgressIndicator(color: AppColors.gold),
+          ),
+        ),
+      );
+    }
+    return const _AuthGate();
+  }
+}
+
+/// Listens to Firebase auth state and routes to login or home.
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
@@ -74,9 +127,7 @@ class _AuthGate extends StatelessWidget {
             ),
           );
         }
-        if (snapshot.hasData) {
-          return const FoldersScreen();
-        }
+        if (snapshot.hasData) return const FoldersScreen();
         return const AuthScreen();
       },
     );
