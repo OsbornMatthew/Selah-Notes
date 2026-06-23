@@ -170,7 +170,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Widget _buildList() => ListView.builder(
-    padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 35, 16, 100),
+    padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 40, 16, 100),
     itemCount: _notes.length,
     itemBuilder: (ctx, i) {
       final n = _notes[i];
@@ -234,7 +234,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   );
 
   Widget _buildGrid() => GridView.builder(
-    padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 35, 16, 100),
+    padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 40, 16, 100),
     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.9),
     itemCount: _notes.length,
     itemBuilder: (ctx, i) {

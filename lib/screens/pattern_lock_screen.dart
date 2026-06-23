@@ -5,7 +5,7 @@ import '../services/notes_database.dart';
 
 enum PatternLockMode { setup, verify, change }
 
-const int _kPasswordLength = 7;
+const int _kPasswordLength = 8;
 
 class PatternLockScreen extends StatefulWidget {
   final PatternLockMode mode;
@@ -37,13 +37,13 @@ class _PatternLockScreenState extends State<PatternLockScreen> {
   }
 
   String get _subtitle {
-    if (widget.mode == PatternLockMode.verify) return 'Enter your 7-digit password to unlock';
+    if (widget.mode == PatternLockMode.verify) return 'Enter your 8-digit password to unlock';
     if (_needsOldPassword) return 'Enter your current password to continue';
     if (_isChangeMode) return _firstEntry == null
-        ? 'Enter a new 7-digit password'
+        ? 'Enter a new 8-digit password'
         : 'Enter the new password again';
     return _firstEntry == null
-        ? 'Create a 7-digit password to protect your archive'
+        ? 'Create an 8-digit password to protect your archive'
         : 'Enter the same password again';
   }
 

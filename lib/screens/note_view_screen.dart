@@ -262,7 +262,7 @@ class _NoteViewScreenState extends State<NoteViewScreen> {
           child: SafeArea(
             top: false,
             child: Padding(
-              padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 35, 16, 16),
+              padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 40, 16, 16),
               child: GlassCard(
                 blurSigma: 22,
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),

@@ -92,7 +92,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                       color: AppColors.gold,
                       backgroundColor: AppColors.bgTop,
                       child: ListView.builder(
-                        padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 35, 16, 32),
+                        padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 40, 16, 32),
                         itemCount: _notes.length,
                         itemBuilder: (ctx, i) {
                           final n = _notes[i];

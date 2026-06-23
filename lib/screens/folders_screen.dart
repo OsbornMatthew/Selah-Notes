@@ -165,16 +165,15 @@ class _FoldersScreenState extends State<FoldersScreen> {
   }
 
   Widget _buildAccountIcon() {
-    final photoUrl = AuthService.currentUser?.photoURL;
-    if (photoUrl != null && photoUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 14,
-        backgroundColor: AppColors.glassFill,
-        backgroundImage: NetworkImage(photoUrl),
-        onBackgroundImageError: (_, __) {}, // fall through silently to backgroundColor if it fails to load
-      );
-    }
-    return const Icon(Icons.account_circle_outlined, color: AppColors.gold);
+    // Inverted: filled gold circle with a dark icon, instead of a gold icon
+    // on a transparent background.
+    return Container(
+      width: 28,
+      height: 28,
+      decoration: const BoxDecoration(shape: BoxShape.circle, color: AppColors.gold),
+      alignment: Alignment.center,
+      child: const Icon(Icons.person_rounded, color: Colors.black, size: 18),
+    );
   }
 
   @override
@@ -206,11 +205,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
               if (v == 'logout') _confirmSignOut();
             },
             itemBuilder: (_) => [
-              PopupMenuItem(enabled: false, child: Row(children: [
-                _buildAccountIcon(),
-                const SizedBox(width: 10),
-                Expanded(child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5), overflow: TextOverflow.ellipsis)),
-              ])),
+              PopupMenuItem(enabled: false, child: Text(email, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5))),
               const PopupMenuDivider(),
               const PopupMenuItem(value: 'archive', child: Row(children: [Icon(Icons.archive_outlined, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Archive', style: TextStyle(color: AppColors.textPrimary))])),
               const PopupMenuItem(value: 'change_password', child: Row(children: [Icon(Icons.password_rounded, size: 18, color: AppColors.gold), SizedBox(width: 10), Text('Change Archive Password', style: TextStyle(color: AppColors.textPrimary))])),
@@ -226,7 +221,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
         child: SafeArea(
           top: false,
           child: Column(children: [
-            SizedBox(height: kToolbarHeight + 35),
+            SizedBox(height: kToolbarHeight + 40),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: GlassCard(

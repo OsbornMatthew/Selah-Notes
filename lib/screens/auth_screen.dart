@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
-import '../widgets/feather_icon.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -16,7 +15,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
   bool _isSignUp = false;
   bool _isLoading = false;
-  bool _isGoogleLoading = false;
   bool _obscurePassword = true;
   String? _errorText;
 
@@ -55,24 +53,6 @@ class _AuthScreenState extends State<AuthScreen> {
     // navigates to the home screen — nothing else to do here.
   }
 
-  Future<void> _submitGoogle() async {
-    setState(() {
-      _isGoogleLoading = true;
-      _errorText = null;
-    });
-
-    final error = await AuthService.signInWithGoogle();
-
-    if (!mounted) return;
-    setState(() => _isGoogleLoading = false);
-
-    if (error != null) {
-      setState(() => _errorText = error);
-    }
-    // On success, the auth state stream in main.dart automatically
-    // navigates to the home screen — nothing else to do here.
-  }
-
   Future<void> _forgotPassword() async {
     final email = _emailController.text.trim();
     if (email.isEmpty) {
@@ -102,7 +82,7 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const FeatherIcon(size: 44, color: AppColors.gold),
+                  const Icon(Icons.edit_outlined, color: AppColors.gold, size: 44),
                   const SizedBox(height: 12),
                   const Text(
                     'Selah Notes',
@@ -198,45 +178,6 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Row(children: [
-                    const Expanded(child: Divider(color: AppColors.divider)),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('or', style: TextStyle(color: AppColors.textFaint, fontSize: 12.5)),
-                    ),
-                    const Expanded(child: Divider(color: AppColors.divider)),
-                  ]),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    height: 50,
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: (_isLoading || _isGoogleLoading) ? null : _submitGoogle,
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: AppColors.glassFill,
-                        side: const BorderSide(color: AppColors.glassBorder),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      child: _isGoogleLoading
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.gold),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const _GoogleLogo(size: 18),
-                                const SizedBox(width: 10),
-                                const Text(
-                                  'Continue with Google',
-                                  style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
                   TextButton(
                     onPressed: _isLoading
                         ? null
@@ -253,36 +194,6 @@ class _AuthScreenState extends State<AuthScreen> {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A small, reliable Google "G" badge — white circle with the multi-color G
-/// initial. Simpler and more robust than reproducing the exact logo geometry,
-/// while still being immediately recognizable and never network-dependent.
-class _GoogleLogo extends StatelessWidget {
-  final double size;
-  const _GoogleLogo({required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-      alignment: Alignment.center,
-      child: Text(
-        'G',
-        style: TextStyle(
-          fontSize: size * 0.66,
-          fontWeight: FontWeight.w900,
-          height: 1,
-          foreground: Paint()
-            ..shader = const LinearGradient(
-              colors: [Color(0xFF4285F4), Color(0xFFEA4335), Color(0xFFFBBC05), Color(0xFF34A853)],
-            ).createShader(Rect.fromLTWH(0, 0, size, size)),
         ),
       ),
     );
