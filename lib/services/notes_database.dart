@@ -4,6 +4,17 @@ import '../models/note.dart';
 import '../models/folder.dart';
 
 class NotesService {
+
+  // In-memory cache for archive password — avoids repeated Firestore reads
+  // every time the user opens the archive menu. Cleared on sign-out.
+  static String? _cachedArchivePassword;
+  static bool _archivePasswordLoaded = false;
+
+  static void clearCache() {
+    _cachedArchivePassword = null;
+    _archivePasswordLoaded = false;
+  }
+
   static FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   static String get _uid {
@@ -18,31 +29,67 @@ class NotesService {
   static CollectionReference<Map<String, dynamic>> get _notesRef =>
       _db.collection('users').doc(_uid).collection('notes');
 
-  // ── Settings (pattern, etc.) ──────────────────────────────────────────────
   static DocumentReference<Map<String, dynamic>> get _settingsRef =>
       _db.collection('users').doc(_uid);
 
+  // ── Cache-first helper ────────────────────────────────────────────────────
+  // Reads from local Firestore cache instantly, then quietly refreshes from
+  // server in the background. This makes every list screen feel instant.
+  static Future<QuerySnapshot<Map<String, dynamic>>> _getQuery(
+    Query<Map<String, dynamic>> query,
+  ) async {
+    try {
+      // Try local cache first — returns in <10 ms when offline or cached
+      return await query.get(const GetOptions(source: Source.cache));
+    } catch (_) {
+      // Cache miss (first launch or cleared) — fall back to network
+      return await query.get(const GetOptions(source: Source.server));
+    }
+  }
+
+  static Future<DocumentSnapshot<Map<String, dynamic>>> _getDoc(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    try {
+      return await ref.get(const GetOptions(source: Source.cache));
+    } catch (_) {
+      return await ref.get(const GetOptions(source: Source.server));
+    }
+  }
+
+  // Refresh from server in background (fire and forget)
+  static void _bgRefreshQuery(Query<Map<String, dynamic>> query) {
+    query.get(const GetOptions(source: Source.server)).catchError((_) {});
+  }
+
+  // ── Settings ──────────────────────────────────────────────────────────────
   static Future<void> saveArchivePattern(String pattern) async {
     await _settingsRef.set({'archivePattern': pattern}, SetOptions(merge: true));
   }
 
   static Future<String?> getArchivePattern() async {
-    final doc = await _settingsRef.get();
+    final doc = await _getDoc(_settingsRef);
     return doc.data()?['archivePattern'] as String?;
   }
 
   static Future<void> saveArchivePassword(String password) async {
     await _settingsRef.set({'archivePassword': password}, SetOptions(merge: true));
+    _cachedArchivePassword = password;
+    _archivePasswordLoaded = true;
   }
 
   static Future<String?> getArchivePassword() async {
-    final doc = await _settingsRef.get();
-    return doc.data()?['archivePassword'] as String?;
+    if (_archivePasswordLoaded) return _cachedArchivePassword;
+    final doc = await _getDoc(_settingsRef);
+    _cachedArchivePassword = doc.data()?['archivePassword'] as String?;
+    _archivePasswordLoaded = true;
+    return _cachedArchivePassword;
   }
 
   // ── Folders ───────────────────────────────────────────────────────────────
   static Future<List<Folder>> getAllFolders() async {
-    final snap = await _foldersRef.get();
+    final snap = await _getQuery(_foldersRef);
+    _bgRefreshQuery(_foldersRef); // refresh in background
     return snap.docs.map((d) => Folder.fromDoc(d)).toList();
   }
 
@@ -60,12 +107,9 @@ class NotesService {
 
   // ── Notes — active ────────────────────────────────────────────────────────
   static Future<List<Note>> getNotesByFolder(String folderId) async {
-    // Fetch ALL notes in the folder, then filter in-memory.
-    // Firestore equality filters exclude docs where the field is missing,
-    // so old notes without 'isArchived' would be invisible if we filter in the query.
-    final snap = await _notesRef
-        .where('folderId', isEqualTo: folderId)
-        .get();
+    final query = _notesRef.where('folderId', isEqualTo: folderId);
+    final snap = await _getQuery(query);
+    _bgRefreshQuery(query);
     return snap.docs
         .map((d) => Note.fromDoc(d))
         .where((n) => !n.isDeleted && !n.isArchived)
@@ -73,8 +117,8 @@ class NotesService {
   }
 
   static Future<List<Note>> getAllNotes() async {
-    // Same reason — fetch all, filter in-memory so old notes are included.
-    final snap = await _notesRef.get();
+    final snap = await _getQuery(_notesRef);
+    _bgRefreshQuery(_notesRef);
     return snap.docs
         .map((d) => Note.fromDoc(d))
         .where((n) => !n.isDeleted && !n.isArchived)
@@ -96,7 +140,8 @@ class NotesService {
 
   // ── Archive ───────────────────────────────────────────────────────────────
   static Future<List<Note>> getArchivedNotes() async {
-    final snap = await _notesRef.get();
+    final snap = await _getQuery(_notesRef);
+    _bgRefreshQuery(_notesRef);
     return snap.docs
         .map((d) => Note.fromDoc(d))
         .where((n) => n.isArchived && !n.isDeleted)
@@ -126,9 +171,8 @@ class NotesService {
 
   // ── Recycle bin ───────────────────────────────────────────────────────────
   static Future<List<Note>> getDeletedNotes() async {
-    final snap = await _notesRef.get();
+    final snap = await _getQuery(_notesRef);
     final all = snap.docs.map((d) => Note.fromDoc(d)).toList();
-    // Auto-purge expired items (>30 days)
     final expired = all.where((n) => n.isExpired).toList();
     if (expired.isNotEmpty) {
       final batch = _db.batch();

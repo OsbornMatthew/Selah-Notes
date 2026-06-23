@@ -45,8 +45,14 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
   Future<void> _loadFolders() async {
     setState(() => _isLoading = true);
-    final folders = await NotesService.getAllFolders();
-    final allNotes = await NotesService.getAllNotes();
+    // Load folders, notes, and pre-warm archive password in parallel
+    final results = await Future.wait([
+      NotesService.getAllFolders(),
+      NotesService.getAllNotes(),
+      NotesService.getArchivePassword(), // pre-warms cache → archive opens instantly
+    ]);
+    final folders = results[0] as List<Folder>;
+    final allNotes = results[1] as List<Note>;
     final counts = <String, int>{};
     for (final n in allNotes) counts[n.folderId] = (counts[n.folderId] ?? 0) + 1;
     if (!mounted) return;
