@@ -7,13 +7,11 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:screenshot/screenshot.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:media_store_plus/media_store_plus.dart';
 import '../models/note.dart';
 import '../theme/app_theme.dart';
 
 class ExportService {
-  static const _appFolder = 'Selah Notes';
-  static final _mediaStore = MediaStore();
+  static const _subFolder = 'Selah Notes';
 
   // ── Public entry points ───────────────────────────────────────────────────
 
@@ -21,15 +19,9 @@ class ExportService {
     final title = note.title.isEmpty ? 'Untitled' : note.title;
     final plainText = _extractPlainText(note.content);
     final content = '$title\n${'─' * title.length}\n\n$plainText';
-    final filename = '${_safeFilename(title)}.txt';
     final bytes = Uint8List.fromList(content.codeUnits);
-    await _saveToDownloads(
-      context: context,
-      bytes: bytes,
-      filename: filename,
-      mimeType: 'text/plain',
-      mediaType: DirType.download,
-    );
+    await _save(context: context, bytes: bytes,
+        filename: '${_safeFilename(title)}.txt');
   }
 
   static Future<void> exportAsPdf(Note note, BuildContext context) async {
@@ -56,15 +48,9 @@ class ExportService {
       ),
     ));
 
-    final bytes = await pdf.save();
-    final filename = '${_safeFilename(title)}.pdf';
-    await _saveToDownloads(
-      context: context,
-      bytes: Uint8List.fromList(bytes),
-      filename: filename,
-      mimeType: 'application/pdf',
-      mediaType: DirType.download,
-    );
+    await _save(context: context,
+        bytes: Uint8List.fromList(await pdf.save()),
+        filename: '${_safeFilename(title)}.pdf');
   }
 
   static Future<void> exportAsImage(Note note, BuildContext context) async {
@@ -73,7 +59,6 @@ class ExportService {
     final dateStr = DateFormat('MMM d, yyyy · h:mm a').format(note.updatedAt);
 
     final controller = ScreenshotController();
-
     final widget = Material(
       color: Colors.transparent,
       child: Container(
@@ -96,17 +81,13 @@ class ExportService {
               const Icon(Icons.spa_outlined, color: AppColors.gold, size: 18),
               const SizedBox(width: 8),
               const Text('Selah Notes',
-                  style: TextStyle(
-                      color: AppColors.goldMuted,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600)),
+                  style: TextStyle(color: AppColors.goldMuted,
+                      fontSize: 13, fontWeight: FontWeight.w600)),
             ]),
             const SizedBox(height: 20),
             Text(title,
-                style: const TextStyle(
-                    color: AppColors.gold,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700)),
+                style: const TextStyle(color: AppColors.gold,
+                    fontSize: 26, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
             Text(dateStr,
                 style: const TextStyle(color: AppColors.textFaint, fontSize: 12)),
@@ -114,8 +95,8 @@ class ExportService {
             Container(height: 1, color: AppColors.divider),
             const SizedBox(height: 16),
             Text(plainText,
-                style: const TextStyle(
-                    color: AppColors.textPrimary, fontSize: 16, height: 1.6)),
+                style: const TextStyle(color: AppColors.textPrimary,
+                    fontSize: 16, height: 1.6)),
           ],
         ),
       ),
@@ -127,69 +108,80 @@ class ExportService {
     );
     if (imageBytes == null) return;
 
-    final filename = '${_safeFilename(title)}.png';
-    await _saveToDownloads(
-      context: context,
-      bytes: imageBytes,
-      filename: filename,
-      mimeType: 'image/png',
-      mediaType: DirType.image,
-    );
+    await _save(context: context, bytes: imageBytes,
+        filename: '${_safeFilename(title)}.png');
   }
 
-  // ── Core save logic ───────────────────────────────────────────────────────
+  // ── Core: write to Downloads/Selah Notes/ ────────────────────────────────
 
-  static Future<void> _saveToDownloads({
+  static Future<void> _save({
     required BuildContext context,
     required Uint8List bytes,
     required String filename,
-    required String mimeType,
-    required DirType mediaType,
   }) async {
     try {
-      // Android 10+ (API 29+): use MediaStore — no permission needed
-      // Android 9 and below: need WRITE_EXTERNAL_STORAGE permission
-      final sdkInt = await _getAndroidSdkInt();
+      final dir = await _getDownloadsDir();
+      if (dir == null) {
+        _snack(context, 'Could not access storage', isError: true);
+        return;
+      }
 
-      if (sdkInt != null && sdkInt < 29) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          _showSnack(context, 'Storage permission denied', isError: true);
-          return;
+      // On Android ≤ 9 (API 28) we need WRITE_EXTERNAL_STORAGE
+      if (Platform.isAndroid) {
+        final info = await _sdkInt();
+        if (info != null && info <= 28) {
+          final status = await Permission.storage.request();
+          if (!status.isGranted) {
+            _snack(context, 'Storage permission denied', isError: true);
+            return;
+          }
         }
       }
 
-      // Write to a temp file first
-      final tmp = await getTemporaryDirectory();
-      final tmpFile = File('${tmp.path}/$filename');
-      await tmpFile.writeAsBytes(bytes);
+      final folder = Directory('${dir.path}/$_subFolder');
+      if (!await folder.exists()) await folder.create(recursive: true);
 
-      // Save via MediaStore (works on all API levels with media_store_plus)
-      await MediaStore.appFolder = _appFolder;
-      final saved = await _mediaStore.saveFile(
-        tempFilePath: tmpFile.path,
-        dirType: mediaType,
-        dirName: _appFolder,
-      );
-
-      // Clean up temp file
-      await tmpFile.delete().catchError((_) {});
+      final file = File('${folder.path}/$filename');
+      await file.writeAsBytes(bytes, flush: true);
 
       if (!context.mounted) return;
-      if (saved != null) {
-        _showSnack(context, '✓ Saved to Downloads/$_appFolder/$filename');
-      } else {
-        _showSnack(context, 'Could not save file', isError: true);
-      }
+      _snack(context, '✓ Saved to Downloads/$_subFolder/$filename');
     } catch (e) {
       if (!context.mounted) return;
-      _showSnack(context, 'Export failed: $e', isError: true);
+      _snack(context, 'Export failed: $e', isError: true);
     }
   }
 
-  static void _showSnack(BuildContext context, String message, {bool isError = false}) {
+  // ── Storage directory ─────────────────────────────────────────────────────
+
+  static Future<Directory?> _getDownloadsDir() async {
+    if (Platform.isAndroid) {
+      // /storage/emulated/0/Download — works on API 19+
+      const downloads = '/storage/emulated/0/Download';
+      final d = Directory(downloads);
+      if (await d.exists()) return d;
+      // Fallback: getExternalStorageDirectory gives .../Android/data/...
+      // which is app-private but always writable without permission
+      return await getExternalStorageDirectory();
+    }
+    // iOS / others: Documents folder
+    return await getApplicationDocumentsDirectory();
+  }
+
+  static Future<int?> _sdkInt() async {
+    try {
+      final r = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse(r.stdout.toString().trim());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Snackbar ──────────────────────────────────────────────────────────────
+
+  static void _snack(BuildContext context, String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message,
+      content: Text(msg,
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
       backgroundColor: isError ? AppColors.danger : const Color(0xFF2A2000),
       behavior: SnackBarBehavior.floating,
@@ -199,18 +191,7 @@ class ExportService {
     ));
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  static Future<int?> _getAndroidSdkInt() async {
-    try {
-      if (!Platform.isAndroid) return null;
-      // Read from build props — available without native channel
-      final result = await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse(result.stdout.toString().trim());
-    } catch (_) {
-      return null;
-    }
-  }
+  // ── Text extraction ───────────────────────────────────────────────────────
 
   static String _extractPlainText(String content) {
     if (content.isEmpty) return '';
@@ -220,11 +201,10 @@ class ExportService {
       if (matches.isNotEmpty) {
         return matches.map((m) {
           var text = m.group(1) ?? '';
-          text = text
+          return text
               .replaceAll(r'\n', '\n')
               .replaceAll(r'\"', '"')
               .replaceAll(r'\\', '\\');
-          return text;
         }).join('');
       }
     } catch (_) {}
