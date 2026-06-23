@@ -14,7 +14,6 @@ dependencies:
   cupertino_icons: ^1.0.6
   uuid: ^4.3.3
   intl: ^0.20.2
-  share_plus: ^10.1.2
   firebase_core: ^3.8.0
   firebase_auth: ^5.3.3
   cloud_firestore: ^5.5.0
@@ -22,6 +21,8 @@ dependencies:
   pdf: ^3.11.1
   screenshot: ^3.0.0
   path_provider: ^2.1.2
+  permission_handler: ^11.3.1
+  media_store_plus: ^1.0.7
 
 dev_dependencies:
   flutter_test:

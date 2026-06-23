@@ -172,6 +172,9 @@ class _NotesListScreenState extends State<NotesListScreen> {
   Widget _buildList() => ListView.builder(
     padding: EdgeInsets.fromLTRB(16, kToolbarHeight + 40, 16, 100),
     itemCount: _notes.length,
+    addAutomaticKeepAlives: false,
+    addRepaintBoundaries: false,
+    cacheExtent: 400,
     itemBuilder: (ctx, i) {
       final n = _notes[i];
       final sel = _selected.contains(n.id);

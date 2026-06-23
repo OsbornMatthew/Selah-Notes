@@ -81,11 +81,11 @@ class _FoldersScreenState extends State<FoldersScreen> {
 
   Future<void> _deleteSelected() async {
     final confirm = await showConfirmDialog(context,
-      title: 'Delete Folders?',
-      message: 'Delete ${_selected.length} folder(s) and all notes inside them?',
-      confirmLabel: 'Delete', isDanger: true);
+      title: 'Move to Recycle Bin?',
+      message: 'Move ${_selected.length} folder(s) and all notes inside to the recycle bin?',
+      confirmLabel: 'Move to Bin', isDanger: true);
     if (confirm != true) return;
-    for (final id in _selected) await NotesService.deleteFolder(id);
+    for (final id in _selected) await NotesService.softDeleteFolder(id);
     _clearSelection(); _loadFolders();
   }
 
@@ -98,6 +98,62 @@ class _FoldersScreenState extends State<FoldersScreen> {
     results.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     if (!mounted) return;
     setState(() => _searchResults = results);
+  }
+
+  Future<void> _showGridFolderMenu(Folder f) async {
+    final action = await showModalBottomSheet<String>(
+      context: context, backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+        child: GlassCard(
+          blurSigma: 20,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(f.name, style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 15)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline_rounded, color: AppColors.gold),
+              title: const Text('Rename', style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+              title: const Text('Move to Bin', style: TextStyle(color: AppColors.danger)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (action == 'rename') _renameFolder(f);
+    if (action == 'delete') {
+      final ok = await showConfirmDialog(context,
+        title: 'Move to Recycle Bin?',
+        message: '"${f.name}" and all its notes will be moved to the recycle bin.',
+        confirmLabel: 'Move to Bin', isDanger: true);
+      if (ok == true) { await NotesService.softDeleteFolder(f.id); _loadFolders(); }
+    }
+  }
+
+  Future<void> _renameFolder(Folder f) async {
+    final ctrl = TextEditingController(text: f.name);
+    final name = await showDialog<String>(context: context,
+      builder: (ctx) => GlassDialog(
+        title: 'Rename Folder',
+        child: TextField(controller: ctrl, autofocus: true,
+          style: const TextStyle(color: AppColors.textPrimary),
+          decoration: const InputDecoration(hintText: 'Folder name')),
+        actions: [
+          GlassDialogButton(label: 'Cancel', onTap: () => Navigator.pop(ctx)),
+          GlassDialogButton(label: 'Rename', isPrimary: true, onTap: () => Navigator.pop(ctx, ctrl.text.trim())),
+        ],
+      ),
+    );
+    if (name != null && name.isNotEmpty && name != f.name) {
+      await NotesService.renameFolder(f.id, name);
+      _loadFolders();
+    }
   }
 
   Future<void> _createFolder() async {
@@ -271,6 +327,9 @@ class _FoldersScreenState extends State<FoldersScreen> {
   Widget _buildList() => ListView.builder(
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
     itemCount: _folders.length,
+    addAutomaticKeepAlives: false,
+    addRepaintBoundaries: false,
+    cacheExtent: 400,
     itemBuilder: (ctx, i) {
       final f = _folders[i];
       final sel = _selected.contains(f.id);
@@ -306,13 +365,23 @@ class _FoldersScreenState extends State<FoldersScreen> {
             ],
           ])),
           if (!_isSelecting)
-            IconButton(icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textSecondary),
-              onPressed: () async {
-                final ok = await showConfirmDialog(context,
-                  title: 'Delete Folder?', message: 'This will delete "${f.name}" and all notes inside.',
-                  confirmLabel: 'Delete', isDanger: true);
-                if (ok == true) { await NotesService.deleteFolder(f.id); _loadFolders(); }
-              }),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(
+                icon: const Icon(Icons.drive_file_rename_outline_rounded, color: AppColors.textSecondary),
+                tooltip: 'Rename',
+                onPressed: () => _renameFolder(f),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, color: AppColors.textSecondary),
+                tooltip: 'Move to Bin',
+                onPressed: () async {
+                  final ok = await showConfirmDialog(context,
+                    title: 'Move to Recycle Bin?',
+                    message: '"${f.name}" and all its notes will be moved to the recycle bin.',
+                    confirmLabel: 'Move to Bin', isDanger: true);
+                  if (ok == true) { await NotesService.softDeleteFolder(f.id); _loadFolders(); }
+                }),
+            ]),
         ]),
       );
     },
@@ -333,6 +402,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
           if (_isSelecting) { _toggleSelect(f.id); return; }
           Navigator.push(ctx, MaterialPageRoute(builder: (_) => NotesListScreen(folder: f))).then((_) => _loadFolders());
         },
+        onLongPress: () => _showGridFolderMenu(f),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             if (_isSelecting) Icon(sel ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,

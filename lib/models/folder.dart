@@ -4,26 +4,35 @@ class Folder {
   String id;
   String name;
   DateTime createdAt;
+  DateTime? deletedAt; // non-null = soft-deleted (in recycle bin)
 
   Folder({
     required this.id,
     required this.name,
     required this.createdAt,
+    this.deletedAt,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'name': name,
-      'createdAt': Timestamp.fromDate(createdAt),
-    };
+  bool get isDeleted => deletedAt != null;
+
+  bool get isExpired {
+    if (deletedAt == null) return false;
+    return DateTime.now().difference(deletedAt!).inDays >= 30;
   }
 
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'createdAt': Timestamp.fromDate(createdAt),
+    'deletedAt': deletedAt != null ? Timestamp.fromDate(deletedAt!) : null,
+  };
+
   factory Folder.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
+    final d = doc.data() ?? {};
     return Folder(
       id: doc.id,
-      name: (data['name'] ?? '') as String,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      name: (d['name'] ?? '') as String,
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      deletedAt: (d['deletedAt'] as Timestamp?)?.toDate(),
     );
   }
 }

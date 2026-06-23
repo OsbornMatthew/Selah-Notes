@@ -5,8 +5,6 @@ import '../models/folder.dart';
 
 class NotesService {
 
-  // In-memory cache for archive password — avoids repeated Firestore reads
-  // every time the user opens the archive menu. Cleared on sign-out.
   static String? _cachedArchivePassword;
   static bool _archivePasswordLoaded = false;
 
@@ -32,17 +30,13 @@ class NotesService {
   static DocumentReference<Map<String, dynamic>> get _settingsRef =>
       _db.collection('users').doc(_uid);
 
-  // ── Cache-first helper ────────────────────────────────────────────────────
-  // Reads from local Firestore cache instantly, then quietly refreshes from
-  // server in the background. This makes every list screen feel instant.
+  // ── Cache-first helpers ───────────────────────────────────────────────────
   static Future<QuerySnapshot<Map<String, dynamic>>> _getQuery(
     Query<Map<String, dynamic>> query,
   ) async {
     try {
-      // Try local cache first — returns in <10 ms when offline or cached
       return await query.get(const GetOptions(source: Source.cache));
     } catch (_) {
-      // Cache miss (first launch or cleared) — fall back to network
       return await query.get(const GetOptions(source: Source.server));
     }
   }
@@ -57,7 +51,6 @@ class NotesService {
     }
   }
 
-  // Refresh from server in background (fire and forget)
   static void _bgRefreshQuery(Query<Map<String, dynamic>> query) {
     query.get(const GetOptions(source: Source.server)).catchError((_) {});
   }
@@ -86,22 +79,116 @@ class NotesService {
     return _cachedArchivePassword;
   }
 
-  // ── Folders ───────────────────────────────────────────────────────────────
+  // ── Folders — active ──────────────────────────────────────────────────────
   static Future<List<Folder>> getAllFolders() async {
     final snap = await _getQuery(_foldersRef);
-    _bgRefreshQuery(_foldersRef); // refresh in background
-    return snap.docs.map((d) => Folder.fromDoc(d)).toList();
+    _bgRefreshQuery(_foldersRef);
+    return snap.docs
+        .map((d) => Folder.fromDoc(d))
+        .where((f) => !f.isDeleted)
+        .toList();
   }
 
   static Future<void> saveFolder(Folder folder) async {
     await _foldersRef.doc(folder.id).set(folder.toMap());
   }
 
-  static Future<void> deleteFolder(String id) async {
-    final notesSnap = await _notesRef.where('folderId', isEqualTo: id).get();
+  static Future<void> renameFolder(String id, String newName) async {
+    await _foldersRef.doc(id).update({'name': newName});
+  }
+
+  /// Soft-delete: move folder + all its notes to recycle bin.
+  /// Notes remember their folderId so restore can put them back.
+  static Future<void> softDeleteFolder(String folderId) async {
+    final notesSnap = await _notesRef
+        .where('folderId', isEqualTo: folderId)
+        .get();
+
+    final batch = _db.batch();
+    final now = DateTime.now();
+
+    // Soft-delete folder
+    batch.update(_foldersRef.doc(folderId), {
+      'deletedAt': Timestamp.fromDate(now),
+    });
+
+    // Soft-delete every note inside (keep their folderId intact)
+    for (final doc in notesSnap.docs) {
+      final note = Note.fromDoc(doc);
+      if (!note.isDeleted) {
+        // Only mark as deleted if not already in bin
+        batch.update(_notesRef.doc(doc.id), {
+          'deletedAt': Timestamp.fromDate(now),
+          'isArchived': false,
+          'deletedWithFolder': true, // flag so restore knows this note came with a folder
+        });
+      }
+    }
+
+    await batch.commit();
+  }
+
+  /// Hard-delete folder + all its notes permanently.
+  static Future<void> permanentDeleteFolder(String folderId) async {
+    final notesSnap = await _notesRef
+        .where('folderId', isEqualTo: folderId)
+        .get();
     final batch = _db.batch();
     for (final doc in notesSnap.docs) batch.delete(doc.reference);
-    batch.delete(_foldersRef.doc(id));
+    batch.delete(_foldersRef.doc(folderId));
+    await batch.commit();
+  }
+
+  // ── Folders — recycle bin ─────────────────────────────────────────────────
+  static Future<List<Folder>> getDeletedFolders() async {
+    final snap = await _getQuery(_foldersRef);
+    _bgRefreshQuery(_foldersRef);
+    final all = snap.docs.map((d) => Folder.fromDoc(d)).toList();
+
+    // Purge expired folders (and their notes)
+    final expired = all.where((f) => f.isExpired).toList();
+    if (expired.isNotEmpty) {
+      for (final f in expired) {
+        await permanentDeleteFolder(f.id);
+      }
+    }
+
+    return all.where((f) => f.isDeleted && !f.isExpired).toList();
+  }
+
+  /// Gets notes that were deleted together with a folder (for note count display).
+  static Future<List<Note>> getNotesByDeletedFolder(String folderId) async {
+    final query = _notesRef.where('folderId', isEqualTo: folderId);
+    final snap = await _getQuery(query);
+    return snap.docs
+        .map((d) => Note.fromDoc(d))
+        .where((n) => n.isDeleted && n.deletedWithFolder)
+        .toList();
+  }
+
+  /// Restore folder and all notes that were deleted together with it.
+  static Future<void> restoreFolder(String folderId) async {
+    final notesSnap = await _notesRef
+        .where('folderId', isEqualTo: folderId)
+        .get();
+
+    final batch = _db.batch();
+
+    // Restore folder
+    batch.update(_foldersRef.doc(folderId), {'deletedAt': null});
+
+    // Restore only notes that were deleted as part of this folder
+    for (final doc in notesSnap.docs) {
+      final data = doc.data();
+      final deletedWithFolder = (data['deletedWithFolder'] ?? false) as bool;
+      if (deletedWithFolder) {
+        batch.update(_notesRef.doc(doc.id), {
+          'deletedAt': null,
+          'deletedWithFolder': false,
+        });
+      }
+    }
+
     await batch.commit();
   }
 
@@ -169,7 +256,7 @@ class NotesService {
     await batch.commit();
   }
 
-  // ── Recycle bin ───────────────────────────────────────────────────────────
+  // ── Recycle bin — notes ───────────────────────────────────────────────────
   static Future<List<Note>> getDeletedNotes() async {
     final snap = await _getQuery(_notesRef);
     final all = snap.docs.map((d) => Note.fromDoc(d)).toList();
@@ -179,7 +266,8 @@ class NotesService {
       for (final n in expired) batch.delete(_notesRef.doc(n.id));
       await batch.commit();
     }
-    return all.where((n) => n.isDeleted && !n.isExpired).toList();
+    // Only return standalone deleted notes (not ones deleted as part of a folder)
+    return all.where((n) => n.isDeleted && !n.isExpired && !n.deletedWithFolder).toList();
   }
 
   static Future<void> softDeleteNote(Note note) async {
@@ -201,6 +289,7 @@ class NotesService {
 
   static Future<void> restoreNote(Note note) async {
     note.deletedAt = null;
+    note.deletedWithFolder = false;
     await saveNote(note);
   }
 

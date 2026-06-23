@@ -9,7 +9,8 @@ class Note {
   DateTime updatedAt;
   bool isPinned;
   bool isArchived;
-  DateTime? deletedAt;  // non-null = in recycle bin
+  DateTime? deletedAt;          // non-null = in recycle bin
+  bool deletedWithFolder;       // true = deleted as part of a folder deletion
 
   Note({
     required this.id,
@@ -21,6 +22,7 @@ class Note {
     this.isPinned = false,
     this.isArchived = false,
     this.deletedAt,
+    this.deletedWithFolder = false,
   });
 
   bool get isDeleted => deletedAt != null;
@@ -39,6 +41,7 @@ class Note {
     'isPinned': isPinned,
     'isArchived': isArchived,
     'deletedAt': deletedAt != null ? Timestamp.fromDate(deletedAt!) : null,
+    'deletedWithFolder': deletedWithFolder,
   };
 
   factory Note.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -53,13 +56,14 @@ class Note {
       isPinned: (d['isPinned'] ?? false) as bool,
       isArchived: (d['isArchived'] ?? false) as bool,
       deletedAt: (d['deletedAt'] as Timestamp?)?.toDate(),
+      deletedWithFolder: (d['deletedWithFolder'] ?? false) as bool,
     );
   }
 
   Note copyWith({
     String? title, String? content, String? folderId,
     bool? isPinned, bool? isArchived, DateTime? deletedAt,
-    bool clearDeletedAt = false,
+    bool clearDeletedAt = false, bool? deletedWithFolder,
   }) => Note(
     id: id,
     title: title ?? this.title,
@@ -70,5 +74,6 @@ class Note {
     isPinned: isPinned ?? this.isPinned,
     isArchived: isArchived ?? this.isArchived,
     deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
+    deletedWithFolder: deletedWithFolder ?? this.deletedWithFolder,
   );
 }

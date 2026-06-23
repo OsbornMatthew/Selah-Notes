@@ -13,6 +13,7 @@ import 'screens/auth_screen.dart';
 
 Future<void> _initFirebase() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Enable offline persistence with unlimited cache
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -20,16 +21,25 @@ Future<void> _initFirebase() async {
 }
 
 void main() {
-  // Ensure Flutter engine is ready but don't await Firebase yet —
-  // the app renders its first frame immediately, then Firebase initialises
-  // in the background. This cuts cold-start blank-screen time significantly.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Lock to portrait — avoids layout recalculations on rotation
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarIconBrightness: Brightness.light,
   ));
 
+  // Transparent nav bar on Android
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+  // Kick off Firebase in background — app renders splash immediately
   runApp(SelahNotesApp(firebaseFuture: _initFirebase()));
 }
 
@@ -45,6 +55,7 @@ class SelahNotesApp extends StatelessWidget {
       theme: AppTheme.darkGold,
       darkTheme: AppTheme.darkGold,
       themeMode: ThemeMode.dark,
+      // Quill localizations only needed after login — loaded here once
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
@@ -52,14 +63,32 @@ class SelahNotesApp extends StatelessWidget {
         FlutterQuillLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en')],
+      // Faster page transitions on Android
+      builder: (context, child) {
+        return ScrollConfiguration(
+          behavior: _FastScrollBehavior(),
+          child: child!,
+        );
+      },
       home: _FirebaseGate(firebaseFuture: firebaseFuture),
     );
   }
 }
 
-/// Shows a minimal splash while Firebase initialises, then hands off to
-/// the auth gate. The app paints its very first frame without waiting for
-/// Firebase, so users see the UI almost instantly.
+/// Tighter scroll physics — feels snappier on Android
+class _FastScrollBehavior extends ScrollBehavior {
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const ClampingScrollPhysics();
+
+  @override
+  Widget buildOverscrollIndicator(
+      BuildContext context, Widget child, ScrollableDetails details) =>
+      child; // Remove glow effect — saves GPU work on every overscroll
+}
+
+/// Shows a minimal splash while Firebase initialises.
+/// App renders its first frame WITHOUT waiting for Firebase.
 class _FirebaseGate extends StatefulWidget {
   const _FirebaseGate({required this.firebaseFuture});
   final Future<void> firebaseFuture;
@@ -94,17 +123,57 @@ class _FirebaseGateState extends State<_FirebaseGate> {
       );
     }
     if (!_ready) {
-      // Lightweight splash — no Firebase dependency yet
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        body: GlassBackground(
-          child: const Center(
-            child: CircularProgressIndicator(color: AppColors.gold),
-          ),
-        ),
-      );
+      return const _SplashScreen();
     }
     return const _AuthGate();
+  }
+}
+
+/// Lightweight splash — paints in one frame, no Firebase dependency.
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: GlassBackground(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Simple gold icon — no heavy widgets
+              Container(
+                width: 72, height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.gold.withOpacity(0.12),
+                  border: Border.all(color: AppColors.glassBorder, width: 1.5),
+                ),
+                child: const Icon(Icons.spa_outlined, color: AppColors.gold, size: 36),
+              ),
+              const SizedBox(height: 20),
+              const Text('Selah Notes',
+                style: TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              const SizedBox(
+                width: 24, height: 24,
+                child: CircularProgressIndicator(
+                  color: AppColors.gold,
+                  strokeWidth: 2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -118,14 +187,7 @@ class _AuthGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return Scaffold(
-            backgroundColor: Colors.transparent,
-            body: GlassBackground(
-              child: const Center(
-                child: CircularProgressIndicator(color: AppColors.gold),
-              ),
-            ),
-          );
+          return const _SplashScreen();
         }
         if (snapshot.hasData) return const FoldersScreen();
         return const AuthScreen();
